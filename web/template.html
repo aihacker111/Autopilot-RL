@@ -1,0 +1,273 @@
+<title>LOTUS Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: the street fills the whole screen; three floating instruments sit on it
+   (identity + signal top-left, live counters top-right, transport bar bottom). */
+:root {
+  --ground: #b7b0a2;
+  --panel: rgba(251, 249, 243, .88);
+  --panel-solid: #fbf9f3;
+  --ink: #1e2327;
+  --ink-2: #596169;
+  --ink-3: #8b9297;
+  --line: rgba(30, 35, 39, .12);
+  --paint: #b98a0c;          /* road-paint yellow, darkened to read on light panels */
+  --paint-soft: rgba(201, 154, 18, .16);
+  --go: #23955a; --wait: #c98112; --stop: #cf3a2f;
+  --teal: #0f9f92; --teal-soft: rgba(15, 159, 146, .14);
+  --shadow: 0 10px 30px rgba(30, 28, 20, .18), 0 1px 0 rgba(255, 255, 255, .6) inset;
+  --f-display: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+  --f-data: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --ground: #2b2d2f; --panel: rgba(21, 24, 27, .86); --panel-solid: #15181b; --ink: #eef0eb; --ink-2: #a3abb0; --ink-3: #737b80;
+  --line: rgba(255, 255, 255, .1); --paint: #e8be3a; --paint-soft: rgba(232, 190, 58, .16);
+  --go: #3fd07f; --wait: #f0b23a; --stop: #ff6a5c; --teal: #36d9c8; --teal-soft: rgba(54, 217, 200, .14); --shadow: 0 12px 34px rgba(0, 0, 0, .45), 0 1px 0 rgba(255, 255, 255, .05) inset; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --ground: #2b2d2f; --panel: rgba(21, 24, 27, .86); --panel-solid: #15181b; --ink: #eef0eb; --ink-2: #a3abb0; --ink-3: #737b80;
+  --line: rgba(255, 255, 255, .1); --paint: #e8be3a; --paint-soft: rgba(232, 190, 58, .16);
+  --go: #3fd07f; --wait: #f0b23a; --stop: #ff6a5c; --teal: #36d9c8; --teal-soft: rgba(54, 217, 200, .14); --shadow: 0 12px 34px rgba(0, 0, 0, .45), 0 1px 0 rgba(255, 255, 255, .05) inset; color-scheme: dark }
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--f-body); overflow: hidden; -webkit-font-smoothing: antialiased; }
+#stage { position: fixed; inset: 0; touch-action: none; cursor: grab; }
+#stage.drag { cursor: grabbing; } #stage.hot { cursor: pointer; }
+#cv { width: 100%; height: 100%; display: block; }
+.vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(20, 18, 12, .28) 100%); }
+.hud { position: fixed; z-index: 2; display: flex; flex-direction: column; gap: 10px; }
+.card { background: var(--panel); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.num { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
+.lbl { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+
+/* identity */
+#tl { top: calc(14px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); width: 300px; }
+.brand { padding: 14px 16px 12px; }
+.brand h1 { margin: 0; font: 800 22px/1.1 var(--f-display); letter-spacing: -.01em; display: flex; align-items: center; gap: 10px; text-wrap: balance; }
+.brand h1 .mark { width: 22px; height: 22px; flex: none; border-radius: 6px; background: var(--ink); position: relative; overflow: hidden; }
+.brand h1 .mark::before, .brand h1 .mark::after { content: ""; position: absolute; background: var(--paint); }
+.brand h1 .mark::before { left: 9.5px; top: 0; bottom: 0; width: 3px; }
+.brand h1 .mark::after { top: 9.5px; left: 0; right: 0; height: 3px; }
+.brand p { margin: 6px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.45; }
+.tag { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 3px 8px; border-radius: 999px; background: var(--paint-soft); color: var(--ink); font-size: 11px; font-weight: 600; }
+.tag i { width: 6px; height: 6px; border-radius: 50%; background: var(--paint); }
+.phase { padding: 12px 16px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; }
+.phase .dirs { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.lamp { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 10px currentColor; background: currentColor; }
+.phase .count { font: 700 26px/1 var(--f-data); grid-row: span 2; }
+.phase .sub { font-size: 12px; color: var(--ink-2); }
+
+/* counters */
+#tr { top: calc(14px + env(safe-area-inset-top, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: 268px; }
+.stats { padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px 12px; }
+.stat .v { font: 700 22px/1.1 var(--f-data); font-variant-numeric: tabular-nums; margin-top: 3px; }
+.stat .v small { font: 500 11px var(--f-body); color: var(--ink-2); margin-left: 3px; }
+.stat.wide { grid-column: span 2; }
+#spark { width: 100%; height: 42px; display: block; margin-top: 6px; }
+.mix { padding: 12px 16px 14px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.mixrow { display: grid; grid-template-columns: 62px 1fr 34px; align-items: center; gap: 8px; font-size: 12px; }
+.mixrow .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.mixrow .bar b { display: block; height: 100%; border-radius: 3px; background: var(--ink-2); transition: width .5s; }
+.mixrow .num { text-align: right; color: var(--ink-2); font-size: 11.5px; }
+.risk { padding: 10px 16px 12px; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.risk .v { font: 700 16px/1.2 var(--f-data); }
+.risk .lbl { font-size: 9.5px; }
+
+/* transport */
+#bar { left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); flex-direction: row; align-items: center; gap: 14px; padding: 8px 10px 8px 8px; }
+.btn { appearance: none; border: 0; background: transparent; color: var(--ink); font: 600 13px var(--f-body); border-radius: 10px; height: 36px; padding: 0 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.btn:hover { background: var(--line); }
+.btn:focus-visible, input:focus-visible { outline: 2px solid var(--paint); outline-offset: 2px; }
+#play { width: 40px; padding: 0; justify-content: center; background: var(--ink); color: var(--panel-solid); }
+#play:hover { opacity: .88; }
+#play svg { width: 16px; height: 16px; fill: currentColor; }
+.seg { display: inline-flex; background: var(--line); border-radius: 10px; padding: 3px; }
+.seg button { appearance: none; border: 0; background: transparent; color: var(--ink-2); font: 700 12px var(--f-data); padding: 0 10px; height: 30px; border-radius: 8px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--panel-solid); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
+.dens { display: grid; grid-template-columns: auto 150px; align-items: center; gap: 2px 10px; }
+.dens .lbl { grid-column: span 2; display: flex; justify-content: space-between; }
+.dens .lbl b { color: var(--ink); font-weight: 700; letter-spacing: .02em; text-transform: none; font-size: 11.5px; }
+input[type=range] { grid-column: span 2; width: 100%; accent-color: var(--paint); margin: 0; }
+.sep { width: 1px; align-self: stretch; background: var(--line); margin: 4px 0; }
+
+/* inspector */
+#insp { right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 300px; }
+.ilbl { margin-bottom: -4px; }
+.insp { padding: 14px 16px; display: grid; gap: 12px; }
+.insp header { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+.insp h2 { margin: 0; font: 800 17px/1.2 var(--f-display); }
+.insp .route { font-size: 12.5px; color: var(--ink-2); margin-top: 3px; }
+.state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--line); }
+.state i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.state.go { color: var(--go); } .state.wait { color: var(--wait); } .state.stop { color: var(--stop); }
+.state span { color: var(--ink); }
+.trait { display: grid; grid-template-columns: 112px 1fr 30px; align-items: center; gap: 8px; font-size: 12.5px; }
+.trait .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.trait .bar b { display: block; height: 100%; background: var(--paint); border-radius: 4px; }
+.trait .num { font-size: 11.5px; color: var(--ink-2); text-align: right; }
+.irow { display: flex; gap: 18px; }
+.irow .v { font: 700 16px var(--f-data); margin-top: 2px; }
+.x { width: 30px; height: 30px; padding: 0; justify-content: center; font-size: 18px; color: var(--ink-2); }
+.follow[aria-pressed="true"] { background: var(--paint-soft); }
+.hint { position: fixed; z-index: 1; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom, 0px)); font-size: 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); padding: 5px 12px; border-radius: 999px; transition: opacity .6s; pointer-events: none; }
+
+/* the learning car */
+.av { padding: 14px 16px; display: grid; gap: 10px; }
+.avhead { display: flex; align-items: center; gap: 8px; }
+.avhead .chip { width: 22px; height: 14px; border-radius: 4px; background: var(--panel-solid); border: 2px solid var(--teal); position: relative; flex: none; }
+.avhead .chip::after { content: ""; position: absolute; left: 4px; top: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--teal); }
+.avhead b { font: 800 15px var(--f-display); }
+.avhead .lbl { margin-left: auto; }
+.av .seg { width: 100%; } .av .seg button { flex: 1; padding: 0 4px; font-size: 11.5px; }
+.av .seg button[aria-pressed="true"] { color: var(--teal); }
+.avdesc { font-size: 12px; color: var(--ink-2); line-height: 1.4; margin: -2px 0 0; }
+.training { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--teal); background: var(--teal-soft); border-radius: 8px; padding: 6px 10px; }
+.training i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: blink 1.4s infinite; flex: none; }
+.training span { color: var(--ink); font-weight: 500; }
+@keyframes blink { 50% { opacity: .25; } }
+.training.stopped i { animation: none; opacity: .5; }
+@media (prefers-reduced-motion: reduce) { .training i { animation: none; } }
+.avlive { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--ink-2); }
+.avlive b { color: var(--ink); font-family: var(--f-data); font-weight: 700; }
+.tally { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.tally > div { background: var(--teal-soft); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+.tally .v { font: 700 17px/1.1 var(--f-data); font-variant-numeric: tabular-nums; }
+.tally .lbl { font-size: 9px; letter-spacing: .06em; }
+.tally .ok .v { color: var(--go); } .tally .crash .v { color: var(--stop); } .tally .red .v, .tally .timeout .v { color: var(--wait); }
+.avsub { font-size: 11.5px; color: var(--ink-2); line-height: 1.45; }
+.avsub b { color: var(--ink); font-family: var(--f-data); }
+.curvebox { border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 4px; }
+.legend { display: flex; gap: 12px; font-size: 11px; color: var(--ink-2); align-items: center; }
+.legend i { display: inline-block; width: 12px; height: 2px; border-radius: 1px; margin-right: 5px; vertical-align: middle; }
+#curve { width: 100%; height: 92px; display: block; touch-action: none; }
+#curveTip { font-size: 11px; color: var(--ink-3); font-family: var(--f-data); min-height: 14px; }
+.avbtns { display: flex; gap: 6px; }
+.avbtns .btn { height: 30px; padding: 0 10px; border: 1px solid var(--line); font-size: 12px; }
+.avbtns .btn[aria-pressed="true"] { background: var(--teal-soft); border-color: var(--teal); color: var(--ink); }
+.toast { position: fixed; z-index: 3; left: 50%; transform: translateX(-50%); top: calc(16px + env(safe-area-inset-top, 0px)); display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 13px; font-weight: 600; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.toast i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.toast span { color: var(--ink); }
+.toast.go { color: var(--go); } .toast.stop { color: var(--stop); } .toast.wait { color: var(--wait); }
+@media (max-height: 820px) and (min-width: 681px) { #tl .brand p { display: none; } .curvebox { display: none; } }
+.brandrow { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; } .brandrow .tag { margin-top: 0; }
+.mini-btn { height: 26px; padding: 0 10px; font-size: 11.5px; border: 1px solid var(--line); }
+.pj { font: 700 11px var(--f-data); color: var(--ink-2); background: var(--line); padding: 2px 6px; border-radius: 6px; }
+.minicard { padding: 8px; } #mini { width: 100%; height: 190px; display: block; border-radius: 8px; cursor: pointer; }
+@media (max-height: 860px) and (min-width: 681px) { #tr .mix { display: none; } }
+@media (max-width: 900px) { #tr { width: 230px; } #tl { width: 260px; } }
+@media (max-width: 680px) {
+  #tl { width: auto; right: max(16px, env(safe-area-inset-right, 0px)); flex-direction: row; gap: 8px; }
+  #tl .brand { flex: 1; min-width: 0; padding: 10px 12px; }
+  #tl .brand h1 { font-size: 17px; } #tl .brand p { display: none; } #tl .tag { margin-top: 6px; }
+  #tl .phase { padding: 10px 12px; grid-template-columns: auto; gap: 2px; } .phase .sub { display: none; } .phase .count { font-size: 22px; grid-row: auto; }
+  #tr { top: calc(96px + env(safe-area-inset-top, 0px)); width: auto; left: max(16px, env(safe-area-inset-left, 0px)); }
+  #tr .mix, #tr .risk, #spark, .minicard { display: none; }
+  .stats { grid-template-columns: repeat(3, 1fr); padding: 8px 12px; gap: 6px; } .stat.wide { grid-column: auto; } .stat .v { font-size: 15px; } .stat .v small { display: block; margin: 0; font-size: 9.5px; } .stats .lbl { font-size: 9px; }
+  #bar { left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); transform: none; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .dens { grid-template-columns: 1fr; flex: 1; min-width: 120px; } .sep { display: none; } #fit { display: none; }
+  #insp { width: auto; left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  #tl .av { position: fixed; left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(80px + env(safe-area-inset-bottom, 0px)); padding: 10px 12px; gap: 8px; }
+  .inspecting #tl .av { display: none; }
+  #tl .av .avbtns { display: none; } #tl .av .seg button { height: 26px; font-size: 11px; }
+  .tally .v { font-size: 15px; } .tally > div { padding: 4px 6px; }
+  #tl .av .avdesc, #tl .av .curvebox, #tl .av .avsub, #tl .av .avhead .lbl { display: none; }
+  .toast { top: calc(150px + env(safe-area-inset-top, 0px)); max-width: calc(100% - 32px); }
+  .trait { grid-template-columns: 100px 1fr 28px; }
+  .hint { display: none; }
+  #tl .brandrow, .pj { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .mixrow .bar b { transition: none; } }
+</style>
+
+<div id="stage"><canvas id="cv"></canvas></div>
+<div class="vignette"></div>
+
+<div class="hud" id="tl">
+  <div class="card brand">
+    <h1><span class="mark" aria-hidden="true"></span>LOTUS</h1>
+    <p>Một khu phố sinh ngẫu nhiên: ngã tư có đèn, nút không đèn, ngã ba, đường to nhỏ. Chiếc xe viền xanh ngọc là xe tự lái.</p>
+    <div class="brandrow"><span class="tag" id="cityTag"><i></i>Khu phố mẫu</span><button class="btn mini-btn" id="newCity" title="Sinh một khu phố khác">Bản đồ mới</button></div>
+  </div>
+  <div class="card phase" aria-live="off">
+    <div class="dirs"><span class="lamp" id="lampMain"></span><span id="phaseJ" class="pj">Nút 1</span><span id="phaseName">Đông – Tây</span></div>
+    <div class="count num" id="phaseLeft">00</div>
+    <div class="sub" id="phaseSub">Trục chính đang xanh</div>
+  </div>
+  <div class="card av" id="av" hidden>
+    <div class="avhead"><span class="chip" aria-hidden="true"></span><b>Xe tự lái</b><span class="lbl">Ai đang lái</span></div>
+    <div class="seg" role="group" aria-label="Người lái" id="drvSeg"></div>
+    <p class="avdesc" id="avDesc"></p>
+    <div class="training" id="avTraining" hidden><i></i><span></span></div>
+    <div class="avlive"><span>Lượt <b id="avEp">1</b></span><span id="avRoute">–</span><span><b id="avSpeed">0 km/h</b></span><span>Điểm thưởng <b id="avRet">0</b></span></div>
+    <div class="tally">
+      <div class="ok"><div class="lbl">Qua được</div><div class="v" id="ta_ok">0</div></div>
+      <div class="crash"><div class="lbl">Va chạm</div><div class="v" id="ta_crash">0</div></div>
+      <div class="red"><div class="lbl">Vượt đỏ</div><div class="v" id="ta_red">0</div></div>
+      <div class="timeout"><div class="lbl">Hết giờ</div><div class="v" id="ta_timeout">0</div></div>
+    </div>
+    <div class="avsub">Thời gian qua ngã tư trung bình <b id="avTime">–</b><br><span id="avEval"></span></div>
+    <div class="curvebox" id="curveBox" hidden>
+      <div class="legend"><span class="lbl" style="margin-right:auto">Quá trình học</span><span><i style="background:var(--go)"></i>Qua được</span><span><i style="background:var(--stop)"></i>Va chạm</span></div>
+      <canvas id="curve" aria-label="Tỉ lệ qua được và va chạm theo số bước huấn luyện"></canvas>
+      <div id="curveTip"></div>
+    </div>
+    <div class="avbtns"><button class="btn" id="avFollow" aria-pressed="true">Bám theo xe</button><button class="btn" id="avSee" aria-pressed="false">Xem xe thấy gì</button></div>
+  </div>
+</div>
+
+<div class="hud" id="tr">
+  <div class="card">
+    <div class="stats">
+      <div class="stat"><div class="lbl">Trên đường</div><div class="v" id="sTotal">0<small>xe</small></div></div>
+      <div class="stat"><div class="lbl">Lưu lượng</div><div class="v" id="sFlow">0<small>xe/giờ</small></div></div>
+      <div class="stat wide"><div class="lbl">Tốc độ trung bình · 3 phút</div><div class="v" id="sSpeed">0<small>km/h</small></div><canvas id="spark"></canvas></div>
+    </div>
+    <div class="risk">
+      <div><div class="lbl">Vượt đỏ</div><div class="v num" id="sRed">0</div><div class="lbl">/phút</div></div>
+      <div><div class="lbl">Suýt va</div><div class="v num" id="sNear">0</div><div class="lbl">/phút</div></div>
+      <div><div class="lbl">Bấm còi</div><div class="v num" id="sHonk">0</div><div class="lbl">/phút</div></div>
+    </div>
+    <div class="mix" id="mix"></div>
+  </div>
+  <div class="card minicard"><canvas id="mini" aria-label="Bản đồ thu nhỏ, bấm để di chuyển tới"></canvas></div>
+</div>
+
+<div class="hud card" id="bar">
+  <button class="btn" id="play" aria-label="Tạm dừng"><svg viewBox="0 0 16 16"><path id="playIcon" d="M4 2h3v12H4zM9 2h3v12H9z"/></svg></button>
+  <div class="seg" role="group" aria-label="Tốc độ mô phỏng" id="speedSeg">
+    <button data-speed="1" aria-pressed="true">1×</button><button data-speed="2" aria-pressed="false">2×</button><button data-speed="4" aria-pressed="false">4×</button>
+  </div>
+  <div class="sep"></div>
+  <label class="dens" for="density"><span class="lbl">Mật độ <b id="densName">Bình thường</b></span><input type="range" id="density" min="0.2" max="1.4" step="0.05" value="0.9"></label>
+  <div class="sep"></div>
+  <button class="btn" id="fit" title="Xem cả khu phố">Toàn cảnh</button>
+</div>
+
+<div class="hud card" id="insp" hidden>
+  <div class="insp">
+    <header>
+      <div><h2 id="iName">Xe máy</h2><div class="route" id="iRoute">Từ phía Đông · rẽ trái</div></div>
+      <button class="btn x" id="iClose" aria-label="Đóng">×</button>
+    </header>
+    <div class="irow">
+      <div><div class="lbl">Tốc độ</div><div class="v num" id="iSpeed">0 km/h</div></div>
+      <div><div class="lbl">Đã chờ</div><div class="v num" id="iWait">0 s</div></div>
+      <div style="margin-left:auto;align-self:end"><span class="state go" id="iState"><i></i><span>Đang chạy</span></span></div>
+    </div>
+    <div class="lbl ilbl" id="iTraitsLbl">Tính cách</div>
+    <div style="display:grid;gap:8px" id="iTraits"></div>
+    <button class="btn follow" id="iFollow" aria-pressed="false" style="justify-self:start;padding:0 10px;border:1px solid var(--line)">Bám theo xe này</button>
+  </div>
+</div>
+<div class="toast" id="toast" hidden role="status"><i></i><span></span></div>
+<div class="hint" id="hint">Kéo để di chuyển · cuộn để phóng to · bấm vào xe để xem · bấm bản đồ nhỏ để nhảy tới</div>
+
+<script>
+/*SIM*/
+/*RENDER*/
+/*ENV*/
+/*PLANNER*/
+/*AVDATA*/
+/*UI*/
+</script>

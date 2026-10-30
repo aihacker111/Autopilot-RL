@@ -1,0 +1,8 @@
+torch>=2.0
+numpy>=1.24
+pyyaml>=6.0
+pillow>=10.0
+transformers>=4.56   # phase 4 encoders (DINOv3, V-JEPA 2)
+stable-baselines3>=2.3   # optional: rl/sb3_train.py
+gymnasium>=0.29          # optional: rl/sb3_train.py
+# carla==<your CARLA server version>   install separately for phase 4

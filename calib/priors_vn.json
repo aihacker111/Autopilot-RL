@@ -1,0 +1,9 @@
+{
+  "_about": "Plausible upper bounds for behaviour rates in Vietnamese urban traffic, used by the Phase 3 realism filter. These are placeholder priors from field observation; replace them with statistics measured from real trajectories: python calib/fit_from_tracks.py tracks.csv --out calib/measured.json",
+  "wrongWayShare":          {"max": 0.04,  "scale": 0.03, "what": "share of two-wheeler riding time spent against traffic"},
+  "cutInsPerVehMin":        {"max": 0.12,  "scale": 0.08, "what": "lateral moves into a gap under 3 m in front of a car, per vehicle-minute"},
+  "suddenBrakesPerTwoMin":  {"max": 0.8,   "scale": 0.5,  "what": "decelerations above 3.5 m/s^2 without an obvious reason, per two-wheeler-minute"},
+  "npcCollisionsPerMin":    {"max": 0.3,   "scale": 0.3,  "what": "contacts between background road users per minute (should be rare)"},
+  "instantStopsPerVehMin":  {"max": 0.25,  "scale": 0.15, "what": "stops from above 3 m/s within one step (physically implausible), per vehicle-minute"},
+  "hitRate":                {"max": 0.10,  "scale": 0.10, "what": "episodes in which someone else drives into the self-driving car (guards against 'suicidal' scenarios)"}
+}

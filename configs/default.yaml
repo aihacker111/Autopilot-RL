@@ -1,0 +1,38 @@
+# Autopilot-RL full pipeline. Run: python pipeline.py --config configs/default.yaml
+# Each stage writes to runs/<name>/ and is skipped if its result already exists (use --redo <stage>).
+workers: auto            # parallel CPU workers; auto = all cores minus two
+device: auto             # cuda if available
+
+phase2:                  # teacher with full state: look-ahead planner -> DAgger student -> PPO fine-tuning
+  eval_n: 240            # fixed evaluation scenarios
+  rounds: 4              # DAgger rounds
+  decisions: 25000       # teacher-labelled decisions per round
+  epochs: 40
+  ft_steps: 3000000      # PPO fine-tuning steps
+  gate:                  # continue to phase 3 only if the fine-tuned policy reaches this on the fixed suite
+    min_ok: 0.60
+    max_crash: 0.08
+
+phase3:                  # co-evolution of the road-user population (MAP-Elites + realism filter)
+  gens: 4
+  budget: 600            # scenario evaluations per generation
+  batch: 60
+  episodes: 4            # episodes per scenario evaluation
+  realism: 0.5           # minimum realism score to enter the archive
+  priors: calib/priors_vn.json   # ready to use; optionally calib/measured.json measured from real video
+  ft_steps: 1000000      # PPO steps per generation
+  heldout: 60
+  gate:
+    max_default_drop: 0.05   # the evolved car may not lose more than this on ordinary traffic
+
+phase4:                  # camera student in CARLA (DAgger with the phase 3 car as teacher)
+  carla_host: 127.0.0.1
+  carla_port: 2000
+  encoder: dinov3        # dinov3 | vjepa2 | dinov2 | tiny
+  rounds: 4
+  episodes: 40
+  eval_episodes: 30
+  epochs: 30
+  map_seed: 7
+  nx: 3
+  ny: 3
