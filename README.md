@@ -1,6 +1,9 @@
 <div align="center">
 
-# 🪷 LOTUS · Autopilot L4 Reinforcement Learning
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo/lotus-banner-dark.svg">
+  <img src="docs/logo/lotus-banner.svg" alt="LOTUS: self-driving in Vietnamese traffic" width="480">
+</picture>
 
 **L**ook-ahead **O**racle **T**eaching in **U**rban **S**warms
 
@@ -132,7 +135,32 @@ python pipeline.py --redo 3                         # rerun phase 3 only
 
 - **Gates between phases.** A phase only starts once the previous phase meets the thresholds in `configs/default.yaml`, so a weak teacher never feeds the next stage. Use `--force` to skip the gates.
 - **Resumable.** Phases that already have results are skipped.
-- **Background run on a server:** `nohup python pipeline.py > pipeline.log 2>&1 &` then `tail -f pipeline.log`, or run it inside `screen`/`tmux`.
+- **Background run on a server:** run it inside `screen`/`tmux` (or `nohup python pipeline.py &`). Everything is also written to `rl/runs/pipeline.log`.
+
+### 📺 Watch training live
+
+When the pipeline starts, it prints a link to the **training monitor**:
+
+```
+LOTUS training monitor is running
+  Open in a browser:      http://10.0.0.5:8765
+  Simulator, live:        http://10.0.0.5:8765/sim
+```
+
+Open it from any browser, at any time, while training runs:
+
+- **Dashboard** (`/`): current stage and progress, PPO learning curves (success, crash, red light, timeout, reward), DAgger rounds, driver comparison, the phase-3 scenario archive as a heat map, CPU/RAM/GPU/disk load and the live log. Refreshes every 4 seconds.
+- **Simulator** (`/sim`): the city with the car driven by the **newest checkpoint** (PPO writes a snapshot every 10 updates); a button appears when a newer one is ready.
+
+If the server's port is not reachable (firewall, cloud provider), tunnel it from your own computer: `ssh -L 8765:localhost:8765 user@server`, then open `http://localhost:8765`.
+
+| Option | Effect |
+|---|---|
+| `--port 9000` | another port (the next free one is used if it is busy); `--port 0` turns the monitor off |
+| `--bind 127.0.0.1` | only reachable through an SSH tunnel |
+| `--exit-when-done` | stop the monitor when the pipeline ends (by default it stays up until Ctrl+C so the results can be viewed) |
+
+The monitor can also run on its own, for example for a training script started by hand or to view finished results: `python monitor/server.py --runs rl/runs --port 8765`. It uses only the Python standard library and never writes into the run folder.
 
 Rough timings on a 32-core server with one GPU:
 
@@ -274,6 +302,7 @@ Most "stuck" episodes are genuine traffic jams at busy junctions. Results for th
 Autopilot-RL/
 ├── pipeline.py              # full pipeline 2 → 3 → 4, with gates
 ├── configs/default.yaml     # all main parameters
+├── monitor/                 # live training monitor: server.py (stdlib web server) + dashboard.html
 ├── web/                     # Phase 1 + shared code
 │   ├── sim.js               #   simulation core: city, signals, motorbikes, scenario genomes, world copies
 │   ├── env.js               #   RL environment; SetPolicy/MLPPolicy run networks in the browser and in Node

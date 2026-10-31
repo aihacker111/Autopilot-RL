@@ -132,7 +132,7 @@ def train(a):
     if not a.resume: norm.update(raw)
     hist = deque(maxlen=200); log = []
     steps, upd, t0 = start, 0, time.time()
-    if not a.resume: save(model, norm, os.path.join(a.out, "step_0.pt"), 0); export_json(model, norm, os.path.join(a.out, "step_0.json"), "Mới học", 0)
+    if not a.resume: save(model, norm, os.path.join(a.out, "step_0.pt"), 0); export_json(model, norm, os.path.join(a.out, "step_0.json"), "Untrained", 0)
     milestones = [m for m in milestones if m > start]
     n_upd = max(1, (a.steps - start) // (N * T))
     while steps < a.steps:
@@ -189,8 +189,8 @@ def train(a):
         while milestones and steps >= milestones[0]:
             m = milestones.pop(0)
             save(model, norm, os.path.join(a.out, f"step_{m}.pt"), steps)
-            export_json(model, norm, os.path.join(a.out, f"step_{m}.json"), f"{m // 1000}k bước", steps)
-    save(model, norm, os.path.join(a.out, "final.pt"), steps); export_json(model, norm, os.path.join(a.out, "final.json"), "Đã học xong", steps)
+            export_json(model, norm, os.path.join(a.out, f"step_{m}.json"), f"{m // 1000}k steps", steps)
+    save(model, norm, os.path.join(a.out, "final.pt"), steps); export_json(model, norm, os.path.join(a.out, "final.json"), "Fully trained", steps)
     env.close()
 
 

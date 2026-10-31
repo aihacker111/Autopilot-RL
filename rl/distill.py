@@ -23,6 +23,13 @@ HEAD = EGO_DIM + WP * 2          # ego features + route waypoints
 OBS = HEAD + K * NB
 
 
+def note(out, name="status.json", **kw):
+    """small progress file for the training monitor (atomic write, so a reader never sees half a file)"""
+    p = os.path.join(out, name); tmp = p + ".tmp"
+    with open(tmp, "w") as f: json.dump({**kw, "t": time.time()}, f)
+    os.replace(tmp, p)
+
+
 class SetPolicy(nn.Module):
     """DeepSets: shared MLP per neighbour, max+mean pooling, MLP head; tanh output in [-1, 1]."""
     def __init__(self, h_phi=64, h=256):
@@ -119,15 +126,19 @@ if __name__ == "__main__":
     log, model, student = [], None, None
     for r in range(a.rounds):
         beta = 1.0 if r == 0 else max(0.1, 0.6 ** r)
+        note(a.out, round=r, rounds=a.rounds, step="gen", beta=beta)
         t0 = time.time(); gen(r, a.decisions, a.workers, a.out, student, beta)
         X, Y, eps = load_data(a.out)
+        note(a.out, round=r, rounds=a.rounds, step="train", samples=int(len(X)))
         t1 = time.time(); model, vl = train_student(X, Y, a.epochs, a.device, model)
         student = os.path.join(a.out, f"student_r{r}.json")
-        export(model.cpu(), student, f"Học sinh vòng {r + 1}", int(len(X))); model.to(a.device)
+        export(model.cpu(), student, f"Student round {r + 1}", int(len(X))); model.to(a.device)
         torch.save(model.state_dict(), os.path.join(a.out, f"student_r{r}.pt"))
+        note(a.out, round=r, rounds=a.rounds, step="eval")
         ev = evaluate(student, a.eval_n, a.workers)
         teach = [e for e in eps if e]; tm = lambda k: sum(e["result"] == k for e in teach) / max(1, len(teach))
         row = {"round": r, "beta": beta, "samples": int(len(X)), "val_mse": round(vl, 4), "gen_min": round((t1 - t0) / 60, 1), "train_min": round((time.time() - t1) / 60, 1),
                "rollout_ok": round(tm("ok"), 3), "rollout_crash": round(tm("crash"), 3), "eval": ev}
         log.append(row); print(json.dumps(row), flush=True)
         json.dump(log, open(os.path.join(a.out, "distill_log.json"), "w"), indent=1)
+    note(a.out, round=a.rounds - 1, rounds=a.rounds, step="done")

@@ -38,7 +38,7 @@ const ROAD = {
 function cityMap(seed = 1, opt = {}) {
   const r = rngFrom(seed * 7919 + 17);
   const nx = opt.nx ?? 3, ny = opt.ny ?? 3, EDGE = opt.edge ?? 70;
-  const m = { name: opt.name || "Khu phố mẫu", seed, nx, ny, sidewalk: 4.5, cornerR: 7, zebra: [1.0, 4.0], stop: 4.6,
+  const m = { name: opt.name || "Sample district", seed, nx, ny, sidewalk: 4.5, cornerR: 7, zebra: [1.0, 4.0], stop: 4.6,
     turn: { straight: 0.58, right: 0.24, left: 0.18 }, juncs: [], links: [], entries: [] };
   const pickClasses = (n) => {
     const c = []; for (let i = 0; i < n; i++) { const q = r(); c.push(q < 0.35 ? ROAD.main : q < 0.75 ? ROAD.sec : ROAD.small); }

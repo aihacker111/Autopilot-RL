@@ -10,20 +10,21 @@
 
   /* ---------- drivers for the self-driving car */
   const planner = new LookaheadPlanner({ vTs: [0, 4, 8, 12], lats: [-0.6, 0, 0.6], M: 2, H: 10 });
-  const drivers = [{ id: "planner", short: "Thầy nhìn trước", desc: "Mỗi 0,2 giây sao chép thế giới quanh xe, thử 12 phương án tốc độ và vị trí ngang trong 2 giây tới với 2 tương lai ngẫu nhiên, chọn phương án an toàn nhất trong trường hợp xấu nhất.", act: (env) => planner.plan(env) },
-    { id: "idm", short: "Viết tay", desc: "Bộ lái viết tay: bám xe phía trước (IDM), dừng đèn đỏ và vàng. Mốc so sánh mà mọi bản học máy phải thắng.", act: (env) => idmAct(env) }];
-  if (AV) for (const c of AV.ckpts) { const pol = makePolicy(c); drivers.push({ id: "nn" + c.steps, short: c.short, desc: c.desc, act: (env) => pol.act(curObs), nn: true }); }
+  const drivers = [{ id: "planner", short: "Teacher", name: "look-ahead teacher", desc: "Every 0.2 s it copies the world around the car, tries 12 speed and lane-offset plans over the next 2 s in 2 random futures, and picks the plan that is safest in the worst case.", act: (env) => planner.plan(env) },
+    { id: "idm", short: "Rules", name: "rule-based", desc: "Hand-written driver: follows the vehicle ahead (IDM) and stops for red and amber. The baseline every learned driver has to beat.", act: (env) => idmAct(env) }];
+  if (AV) for (const c of AV.ckpts) { const pol = makePolicy(c); drivers.push({ id: "nn" + c.steps, short: c.short, name: c.name || c.short, desc: c.desc, act: (env) => pol.act(curObs), nn: true }); }
   let drv = 0, curObs = null, lastAct = [0, 0], tally = null, crashMark = null, seeing = false;
+  try { if (new URLSearchParams(location.search).get("driver") === "latest" && drivers.length > 2) drv = drivers.length - 1; } catch (e) {}   // training monitor: start on the newest network
 
   function newCity(seed) {
     citySeed = seed;
-    map = cityMap(seed, { nx: 3, ny: 3, name: "Khu phố mẫu" });
+    map = cityMap(seed, { nx: 3, ny: 3, name: "Sample district" });
     layers = new CityLayers(map, seed * 3 + 1, ppm, 80, W < 680 ? 10 : 16);
     sim = new Sim(map, seed, +$("density").value);
     env = new EgoEnv({ sim, reseedEvery: 0, seed: seed + 100 });
     curObs = env.reset();
     const sig = map.juncs.filter((j) => j.type === "signal").length, t3 = map.juncs.filter((j) => Object.keys(j.arms).length === 3).length;
-    $("cityTag").lastChild.nodeValue = `Khu phố #${seed} · ${map.juncs.length} nút · ${sig} có đèn${t3 ? ` · ${t3} ngã ba` : ""}`;
+    $("cityTag").lastChild.nodeValue = `District #${seed} · ${map.juncs.length} junctions · ${sig} signals`;
     tally = { ok: 0, crash: 0, red: 0, timeout: 0, hit: 0, n: 0, tOk: 0 };
     updateTally(); speedHist.length = 0; mini.dirty = true;
     if (env.ego) { cam.x = env.ego.x; cam.y = env.ego.y; }
@@ -44,12 +45,12 @@
 
   /* ---------- controls */
   const playIcon = $("playIcon");
-  function setPaused(p) { paused = p; playIcon.setAttribute("d", p ? "M4 2l10 6-10 6z" : "M4 2h3v12H4zM9 2h3v12H9z"); $("play").setAttribute("aria-label", p ? "Chạy tiếp" : "Tạm dừng"); }
+  function setPaused(p) { paused = p; playIcon.setAttribute("d", p ? "M4 2l10 6-10 6z" : "M4 2h3v12H4zM9 2h3v12H9z"); $("play").setAttribute("aria-label", p ? "Resume" : "Pause"); }
   $("play").onclick = () => setPaused(!paused);
   const speedBtns = document.querySelectorAll("#speedSeg button");
   speedBtns.forEach((b) => b.onclick = () => setSpeed(+b.dataset.speed));
   function setSpeed(s) { speed = s; speedBtns.forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.speed === s))); }
-  const densNames = [[0.45, "Vắng"], [0.95, "Bình thường"], [1.15, "Đông"], [9, "Tan tầm"]];
+  const densNames = [[0.45, "Light"], [0.95, "Normal"], [1.15, "Busy"], [9, "Rush hour"]];
   function setDensity(d) { if (sim) sim.density = d; $("densName").textContent = densNames.find(([t]) => d <= t)[1]; }
   $("density").oninput = (e) => setDensity(+e.target.value);
   $("fit").onclick = () => { stopFollowing(); const B = map.bounds; animateCam((B.x0 + B.x1) / 2, (B.y0 + B.y1) / 2, Math.min(W / (B.x1 - B.x0), H / (B.y1 - B.y0)) * 1.02); };
@@ -132,20 +133,20 @@
   }
 
   /* ---------- inspector */
-  const TYPE_NAME = { moto: "Xe máy", bike: "Xe đạp", car: "Ô tô con", taxi: "Taxi", bus: "Xe buýt", truck: "Xe tải" };
-  const ARM_NAME = { E: "phía Đông", W: "phía Tây", N: "phía Bắc", S: "phía Nam" };
-  const KIND = { straight: "đi thẳng", left: "rẽ trái", right: "rẽ phải" };
-  const traits = [["aggr", "Liều lĩnh", (v) => v.aggr], ["patience", "Kiên nhẫn", (v) => v.patience], ["comply", "Tuân thủ luật", (v) => v.comply], ["speed", "Thích chạy nhanh", (v) => (v.speedPref - 0.8) / 0.45]];
-  const egoBars = [["spd", "Tốc độ mong muốn", () => (lastAct[0] + 1) / 2], ["lat", "Vị trí trong làn", () => (lastAct[1] + 1) / 2]];
+  const TYPE_NAME = { moto: "Motorbike", bike: "Bicycle", car: "Car", taxi: "Taxi", bus: "Bus", truck: "Truck" };
+  const ARM_NAME = { E: "the east", W: "the west", N: "the north", S: "the south" };
+  const KIND = { straight: "going straight", left: "turning left", right: "turning right" };
+  const traits = [["aggr", "Risk-taking", (v) => v.aggr], ["patience", "Patience", (v) => v.patience], ["comply", "Rule-abiding", (v) => v.comply], ["speed", "Likes speed", (v) => (v.speedPref - 0.8) / 0.45]];
+  const egoBars = [["spd", "Target speed", () => (lastAct[0] + 1) / 2], ["lat", "Lane position", () => (lastAct[1] + 1) / 2]];
   function buildTraits(list) { $("iTraits").innerHTML = list.map(([k, n]) => `<div class="trait"><span>${n}</span><span class="bar"><b id="t_${k}"></b></span><span class="num" id="tn_${k}"></span></div>`).join(""); }
   function fillTraits(list, v) { for (const [k, , f] of list) { const x = Math.max(0, Math.min(1, f(v))); $("t_" + k).style.width = (x * 100).toFixed(0) + "%"; $("tn_" + k).textContent = Math.round(x * 100); } }
   function select(v) {
     sel = v; $("insp").hidden = !v; document.body.classList.toggle("inspecting", !!v);
     if (!v) { follow = false; $("iFollow").setAttribute("aria-pressed", "false"); return; }
-    if (v.ego) { $("iName").textContent = "Xe tự lái · " + drivers[drv].short; buildTraits(egoBars); $("iTraitsLbl").textContent = "Lệnh đang ra"; $("iFollow").hidden = true; }
+    if (v.ego) { $("iName").textContent = "Self-driving car · " + drivers[drv].name; buildTraits(egoBars); $("iTraitsLbl").textContent = "Current command"; $("iFollow").hidden = true; }
     else {
-      const extra = v.type === "moto" ? (v.delivery ? " · giao hàng" : v.passenger ? " · chở người" : v.cargo === "gas" ? " · chở bình gas" : v.cargo ? " · chở hàng" : "") : "";
-      $("iName").textContent = TYPE_NAME[v.type] + extra; buildTraits(traits); fillTraits(traits, v); $("iTraitsLbl").textContent = "Tính cách (cố định từ lúc xuất hiện)"; $("iFollow").hidden = false;
+      const extra = v.type === "moto" ? (v.delivery ? " · delivery" : v.passenger ? " · with passenger" : v.cargo === "gas" ? " · carrying gas cylinders" : v.cargo ? " · carrying goods" : "") : "";
+      $("iName").textContent = TYPE_NAME[v.type] + extra; buildTraits(traits); fillTraits(traits, v); $("iTraitsLbl").textContent = "Personality (fixed at spawn)"; $("iFollow").hidden = false;
     }
     updateInspector();
   }
@@ -153,15 +154,15 @@
   $("iFollow").onclick = () => { follow = !follow; $("iFollow").setAttribute("aria-pressed", String(follow)); if (follow && sel) { followEgo = false; $("avFollow").setAttribute("aria-pressed", "false"); animateCam(sel.x, sel.y, Math.max(cam.z, fitZoom() * 1.6)); } };
   function updateInspector() {
     if (!sel) return;
-    $("iRoute").textContent = `Nút ${sel.path.junc + 1} · từ ${ARM_NAME[sel.path.from]} · ${KIND[sel.path.kind]}`;
+    $("iRoute").textContent = `Junction ${sel.path.junc + 1} · from ${ARM_NAME[sel.path.from]} · ${KIND[sel.path.kind]}`;
     $("iSpeed").textContent = Math.round(sel.v * 3.6) + " km/h"; $("iWait").textContent = Math.round(sel.wait) + " s";
     const L = sel.path.signal ? sim.light(sel.path.junc, sel.path.from) : null;
-    let cls = "go", txt = "Đang chạy";
-    if (sel.ghostUntil > sim.t) { cls = "wait"; txt = "Đang chen lấn"; }
-    else if ((sel.ego ? env.redLegs && env.redLegs.size : sel.ranRed) && sel.s < sel.path.sOut + 5) { cls = "stop"; txt = "Vượt đèn đỏ"; }
-    else if (sel.v < 0.3 && sel.honk > 0) { cls = "wait"; txt = "Bấm còi"; }
-    else if (sel.v < 0.3) { cls = "wait"; txt = sel.s < sel.path.sIn && L && L.c !== "G" ? "Chờ đèn" : !sel.path.signal && sel.s < sel.path.sIn + 2 && sel.s > sel.path.sStop - 4 ? "Nhường đường" : "Kẹt xe"; }
-    else if (sel.braking) { cls = "wait"; txt = "Đang phanh"; }
+    let cls = "go", txt = "Moving";
+    if (sel.ghostUntil > sim.t) { cls = "wait"; txt = "Squeezing through"; }
+    else if ((sel.ego ? env.redLegs && env.redLegs.size : sel.ranRed) && sel.s < sel.path.sOut + 5) { cls = "stop"; txt = "Running a red"; }
+    else if (sel.v < 0.3 && sel.honk > 0) { cls = "wait"; txt = "Honking"; }
+    else if (sel.v < 0.3) { cls = "wait"; txt = sel.s < sel.path.sIn && L && L.c !== "G" ? "Waiting at light" : !sel.path.signal && sel.s < sel.path.sIn + 2 && sel.s > sel.path.sStop - 4 ? "Yielding" : "Stuck in traffic"; }
+    else if (sel.braking) { cls = "wait"; txt = "Braking"; }
     const st = $("iState"); st.className = "state " + cls; st.lastElementChild.textContent = txt;
     if (sel.ego) fillTraits(egoBars, sel);
   }
@@ -177,7 +178,7 @@
     $("avDesc").textContent = drivers[i].desc;
     tally = { ok: 0, crash: 0, red: 0, timeout: 0, hit: 0, n: 0, tOk: 0 };
     const ev = AV && AV.evals ? AV.evals[drivers[i].id] : null;
-    $("avEval").innerHTML = ev ? `Chấm trên ${ev.episodes} lượt cố định: qua được <b>${pct(ev.ok)}</b> · va chạm <b>${pct(ev.crash)}</b> · vượt đỏ <b>${pct(ev.red)}</b>` : "";
+    $("avEval").innerHTML = ev ? `Scored on ${ev.episodes} fixed episodes: completed <b>${pct(ev.ok)}</b> · crash <b>${pct(ev.crash)}</b> · red light <b>${pct(ev.red)}</b>` : "";
     if (env && env.ego) { env.removeEgo(); curObs = env.reset(); }
     if (sel && sel.ego) select(env.ego);
     updateTally(); drawCurve();
@@ -186,21 +187,21 @@
   function updateTally() {
     for (const k of ["ok", "crash", "red", "timeout"]) $("ta_" + k).textContent = tally[k];
     $("avEp").textContent = tally.n + 1;
-    $("avTime").textContent = tally.ok ? (tally.tOk / tally.ok).toFixed(1).replace(".", ",") + " s" : "–";
+    $("avTime").textContent = tally.ok ? (tally.tOk / tally.ok).toFixed(1) + " s" : "–";
   }
   let toastT = null;
   function toast(text, kind) { const el = $("toast"); el.className = "toast " + kind; el.lastElementChild.textContent = text; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, 2400); }
   function onEpisodeEnd(info) {
     tally.n++; if (info.result !== "hit") tally[info.result === "red" ? "red" : info.result]++; else tally.hit++;
     if (info.red && info.result !== "red") tally.red++;
-    const t = info.time.toFixed(1).replace(".", ",");
-    if (info.result === "ok") { tally.tOk += info.time; toast(`Đi hết lộ trình ${info.legs} nút giao trong ${t} s${info.red ? " · nhưng có vượt đỏ" : ""}`, info.red ? "wait" : "go"); }
+    const t = info.time.toFixed(1);
+    if (info.result === "ok") { tally.tOk += info.time; toast(`Finished a ${info.legs}-junction route in ${t} s${info.red ? " · but ran a red" : ""}`, info.red ? "wait" : "go"); }
     else if (info.result === "crash" || info.result === "hit") {
       const u = env.crashWith; crashMark = { x: env.ego.x, y: env.ego.y, t: performance.now() };
-      toast(info.result === "crash" ? `Va chạm với ${u ? TYPE_NAME[u.type].toLowerCase() : "xe khác"} sau ${t} s` : `Bị ${u ? TYPE_NAME[u.type].toLowerCase() : "xe khác"} tông vào (không phải lỗi xe tự lái)`, info.result === "crash" ? "stop" : "wait");
+      toast(info.result === "crash" ? `Crashed into a ${u ? TYPE_NAME[u.type].toLowerCase() : "vehicle"} after ${t} s` : `Hit by a ${u ? TYPE_NAME[u.type].toLowerCase() : "vehicle"} (not the self-driving car's fault)`, info.result === "crash" ? "stop" : "wait");
     }
-    else if (info.result === "red") toast("Vượt đèn đỏ, kết thúc lượt", "stop");
-    else toast("Kẹt quá 2 phút, bỏ lượt này", "wait");
+    else if (info.result === "red") toast("Ran a red light, episode over", "stop");
+    else toast("Stuck for 2 minutes, episode skipped", "wait");
     updateTally();
   }
   function drawCurve() {
@@ -214,8 +215,8 @@
     cg.font = "500 10px 'JetBrains Mono', ui-monospace, monospace"; cg.fillStyle = col("--ink-3"); cg.strokeStyle = col("--line"); cg.lineWidth = 1; cg.textAlign = "right"; cg.textBaseline = "middle";
     for (const p of [0, 0.5, 1]) { cg.beginPath(); cg.moveTo(L, Y(p)); cg.lineTo(w - R, Y(p)); cg.stroke(); cg.fillText(Math.round(p * 100) + "%", L - 5, Y(p)); }
     for (const [k, c] of [["ok", "--go"], ["crash", "--stop"]]) { cg.strokeStyle = col(c); cg.lineWidth = 2; cg.beginPath(); AV.log.forEach((r, i) => { const x = X(r.steps), y = Y(r[k]); i ? cg.lineTo(x, y) : cg.moveTo(x, y); }); cg.stroke(); }
-    if (curveHover != null) { const r = AV.log.reduce((b, q) => Math.abs(X(q.steps) - curveHover) < Math.abs(X(b.steps) - curveHover) ? q : b, AV.log[0]); $("curveTip").textContent = `${Math.round(r.steps / 1000)}k bước · qua được ${pct(r.ok)} · va chạm ${pct(r.crash)}`; }
-    else $("curveTip").textContent = "Rê chuột lên biểu đồ để xem từng mốc";
+    if (curveHover != null) { const r = AV.log.reduce((b, q) => Math.abs(X(q.steps) - curveHover) < Math.abs(X(b.steps) - curveHover) ? q : b, AV.log[0]); $("curveTip").textContent = `${Math.round(r.steps / 1000)}k steps · completed ${pct(r.ok)} · crash ${pct(r.crash)}`; }
+    else $("curveTip").textContent = "Hover over the chart to inspect each checkpoint";
   }
   if (curve) { curve.addEventListener("pointermove", (e) => { curveHover = e.clientX - curve.getBoundingClientRect().left; drawCurve(); }); curve.addEventListener("pointerleave", () => { curveHover = null; drawCurve(); }); }
 
@@ -252,31 +253,31 @@
   function updateHud() {
     const s = sim.summary();
     $("sTotal").firstChild.nodeValue = s.total;
-    $("sFlow").firstChild.nodeValue = s.flowPerHour.toLocaleString("vi-VN");
-    $("sSpeed").firstChild.nodeValue = s.meanSpeed.toFixed(1).replace(".", ",");
+    $("sFlow").firstChild.nodeValue = s.flowPerHour.toLocaleString("en-US");
+    $("sSpeed").firstChild.nodeValue = s.meanSpeed.toFixed(1);
     $("sRed").textContent = s.redRunsPerMin; $("sNear").textContent = s.nearMissPerMin;
     const nh = sim.stats.honks - lastHonks; lastHonks = sim.stats.honks; honkLog.push([sim.t, nh]); while (honkLog.length && honkLog[0][0] < sim.t - 60) honkLog.shift();
     $("sHonk").textContent = honkLog.reduce((a, b) => a + b[1], 0);
     for (const t of MIX_ORDER) { const c = s.counts[t] || 0; $("m_" + t).style.width = (s.total ? c / s.total * 100 : 0).toFixed(1) + "%"; $("mn_" + t).textContent = c; }
     // the junction closest to the middle of the screen
     const jn = nearestJunction(cam.x, cam.y);
-    $("phaseJ").textContent = `Nút ${jn.id + 1}`;
-    if (jn.type !== "signal") { $("phaseName").textContent = "Không đèn"; $("phaseSub").textContent = "Xe tự nhường nhau khi vào nút"; $("lampMain").style.color = "var(--ink-3)"; $("phaseLeft").style.color = "var(--ink-3)"; $("phaseLeft").textContent = "–"; }
+    $("phaseJ").textContent = `Junction ${jn.id + 1}`;
+    if (jn.type !== "signal") { $("phaseName").textContent = "No signal"; $("phaseSub").textContent = "Vehicles yield to each other on entry"; $("lampMain").style.color = "var(--ink-3)"; $("phaseLeft").style.color = "var(--ink-3)"; $("phaseLeft").textContent = "–"; }
     else {
       const ax = jn.arms.E ? "E" : "W", ay = jn.arms.N ? "N" : "S", lE = sim.light(jn.id, ax), lN = sim.light(jn.id, ay);
       let name, sub, c, left;
-      if (lE.c !== "R") { name = "Đông – Tây"; sub = lE.c === "G" ? "Hướng Đông – Tây đang xanh" : "Đông – Tây sắp đỏ"; c = lE.c; left = lE.left; }
-      else if (lN.c !== "R") { name = "Bắc – Nam"; sub = lN.c === "G" ? "Hướng Bắc – Nam đang xanh" : "Bắc – Nam sắp đỏ"; c = lN.c; left = lN.left; }
-      else { name = "Tất cả đỏ"; sub = "Giải phóng nút giao"; c = "R"; left = Math.min(lE.left, lN.left); }
+      if (lE.c !== "R") { name = "East – West"; sub = lE.c === "G" ? "East – West is green" : "East – West turning red"; c = lE.c; left = lE.left; }
+      else if (lN.c !== "R") { name = "North – South"; sub = lN.c === "G" ? "North – South is green" : "North – South turning red"; c = lN.c; left = lN.left; }
+      else { name = "All red"; sub = "Clearing the junction"; c = "R"; left = Math.min(lE.left, lN.left); }
       $("phaseName").textContent = name; $("phaseSub").textContent = sub;
       const col = c === "G" ? "var(--go)" : c === "Y" ? "var(--wait)" : "var(--stop)";
       $("lampMain").style.color = col; $("phaseLeft").style.color = col; $("phaseLeft").textContent = String(Math.ceil(left)).padStart(2, "0");
     }
     if (env.ego) {
       const e = env.ego;
-      $("avRoute").textContent = `Nút ${e.legs}/${e.route.length} · ${KIND[e.path.kind]}`;
+      $("avRoute").textContent = `Junction ${e.legs}/${e.route.length} · ${KIND[e.path.kind]}`;
       $("avSpeed").textContent = Math.round(e.v * 3.6) + " km/h";
-      $("avRet").textContent = (env.ep.ret >= 0 ? "+" : "") + env.ep.ret.toFixed(1).replace(".", ",");
+      $("avRet").textContent = (env.ep.ret >= 0 ? "+" : "") + env.ep.ret.toFixed(1);
     }
     updateInspector(); drawSpark();
   }
@@ -355,7 +356,7 @@
   }
   setDensity(+$("density").value);
   newCity(citySeed);
-  setDriver(0);
+  setDriver(drv);
   cam.z = fitZoom();
   updateHud(); drawCurve();
   requestAnimationFrame(frame);

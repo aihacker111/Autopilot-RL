@@ -18,6 +18,7 @@ and heldout.json (robustness on scenarios evolved against a different seed, befo
 """
 import argparse, json, math, os, random, subprocess, time
 import numpy as np
+from distill import note
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -27,6 +28,7 @@ DEFAULT = {"density": 0.8, "motoShare": 0.835, "aggrMu": 0.5, "aggrSd": 0.29, "c
            "pWrong": 0, "pCutIn": 0, "pEarlyLeft": 0, "pBrake": 0}
 BEHAVIOURS = ["none", "wrong-way", "cut-in", "early-left", "sudden-brake", "aggressive"]
 DENS_BINS = 5
+PROGRESS = []   # MAP-Elites batches, for the training monitor
 
 
 def random_genome(rng):
@@ -110,8 +112,11 @@ def map_elites(archive, driver, a, priors, rng, tag, seed0):
             batch = [mutate(rng.choice(el)["genome"], rng) if rng.random() < 0.85 else random_genome(rng) for _ in range(a.batch)]
         res = score(evaluate(batch, driver, a.workers, a.episodes, a.out, f"{tag}_{evals}", seed0 + evals), priors, a.realism)
         added = sum(archive.offer(r) for r in res); evals += len(batch)
-        print(json.dumps({"stage": tag, "evals": evals, "added": added, "coverage": round(archive.coverage(), 3), "qd": round(archive.qd(), 3),
-                          "feasible": round(sum(r["feasible"] for r in res) / len(res), 2), "min": round((time.time() - t0) / 60, 1)}), flush=True)
+        row = {"stage": tag, "evals": evals, "added": added, "coverage": round(archive.coverage(), 3), "qd": round(archive.qd(), 3),
+               "feasible": round(sum(r["feasible"] for r in res) / len(res), 2), "min": round((time.time() - t0) / 60, 1)}
+        print(json.dumps(row), flush=True)
+        PROGRESS.append({**row, "t": time.time()}); note(a.out, "progress.json", rows=PROGRESS)
+        note(a.out, "archive_live.json", stage=tag, budget=a.budget, cells=[{"cell": r["cell"], "difficulty": r["difficulty"], "realism": r["realism"], "crash": r["crash"], "ok": r["ok"]} for r in archive.elites()])
     return archive
 
 
@@ -151,6 +156,7 @@ if __name__ == "__main__":
     os.makedirs(a.out, exist_ok=True)
     rng = random.Random(a.seed); priors = json.load(open(a.priors))
     policy, ckpt, log = a.policy, a.init, []
+    note(a.out, gen=0, gens=a.gens, step="heldout")
     # held-out test set: scenarios evolved against the starting car with a different seed, never trained on
     held = map_elites(Archive(), policy, argparse.Namespace(**{**vars(a), "budget": max(a.heldout * 2, a.batch)}), priors, random.Random(a.seed + 999), "heldout", 900000)
     held_genomes = [r["genome"] for r in held.elites()][: a.heldout]
@@ -159,12 +165,14 @@ if __name__ == "__main__":
     default_before = summary(score(evaluate([DEFAULT] * 20, policy, a.workers, a.episodes, a.out, "def_before", 700000), priors, 0))
     archive = Archive()
     for g in range(a.gens):
+        note(a.out, gen=g, gens=a.gens, step="search")
         archive = rescore(archive, policy, a, priors, f"rescore{g}", 100000 * (g + 1)) if g else archive
         archive = map_elites(archive, policy, a, priors, rng, f"gen{g}", 10000 * (g + 1))
         el = archive.elites(); json.dump(el, open(os.path.join(a.out, f"archive_g{g}.json"), "w"))
         pool = [r["genome"] for r in el]; pool_f = os.path.join(a.out, f"pool_g{g}.json"); json.dump(pool, open(pool_f, "w"))
         # fine-tune the car among the elite scenarios
         ft_out = os.path.join(a.out, f"ft_g{g}")
+        note(a.out, gen=g, gens=a.gens, step="finetune")
         subprocess.run(["python3", os.path.join(HERE, "finetune.py"), "--init", ckpt, "--pool", pool_f, "--p-pool", str(a.p_pool), "--steps", str(a.ft_steps),
                         "--workers", str(a.workers), "--bc", "0.3", "--milestones", str(a.ft_steps * 2), "--out", ft_out], check=True)
         policy, ckpt = os.path.join(ft_out, "final.json"), os.path.join(ft_out, "final.pt")
@@ -176,4 +184,5 @@ if __name__ == "__main__":
     default_after = summary(score(evaluate([DEFAULT] * 20, policy, a.workers, a.episodes, a.out, "def_after", 700000), priors, 0))
     json.dump({"heldout_before": before, "heldout_after": log[-1]["heldout_now"] if log else None, "default_before": default_before, "default_after": default_after,
                "final_policy": policy}, open(os.path.join(a.out, "result.json"), "w"), indent=1)
+    note(a.out, gen=a.gens - 1, gens=a.gens, step="done")
     print(json.dumps({"done": True, "final_policy": policy}))

@@ -96,7 +96,7 @@ class Progress(BaseCallback):
         self.training_env.save(os.path.join(self.out, "vecnormalize.pkl"))
         export_json(self.model, self.training_env, self.algo, os.path.join(self.out, tag + ".json"), label, self.num_timesteps)
 
-    def _on_training_start(self): self._save("step_0", "Mới học")
+    def _on_training_start(self): self._save("step_0", "Untrained")
 
     def _on_step(self):
         for inf in self.locals["infos"]:
@@ -114,7 +114,7 @@ class Progress(BaseCallback):
             self.log.append(row); print(json.dumps(row), flush=True)
             with open(os.path.join(self.out, "log.json"), "w") as f: json.dump(self.log, f)
         while self.milestones and n >= self.milestones[0]:
-            m = self.milestones.pop(0); self._save(f"step_{m}", f"{m // 1000}k bước")
+            m = self.milestones.pop(0); self._save(f"step_{m}", f"{m // 1000}k steps")
         return True
 
 
@@ -134,7 +134,7 @@ def train(a):
                     policy_kwargs=dict(net_arch=dict(pi=[128, 128], qf=[256, 256])))
     cb = Progress(a.out, a.algo, [int(x) for x in a.milestones.split(",")], every=a.log_every)
     model.learn(total_timesteps=a.steps, callback=cb)
-    cb._save("final", "Đã học xong")
+    cb._save("final", "Fully trained")
     venv.close()
 
 

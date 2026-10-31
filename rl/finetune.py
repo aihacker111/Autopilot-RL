@@ -13,7 +13,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from train import VecEnv
-from distill import SetPolicy, export, HERE
+from distill import SetPolicy, export, note, HERE
 
 
 class ActorCritic(nn.Module):
@@ -82,10 +82,15 @@ def main(a):
             H = list(hist); n = len(H); m = lambda k: round(sum(h["result"] == k for h in H) / n, 3)
             row = {"steps": steps, "minutes": round((time.time() - t0) / 60, 1), "ok": m("ok"), "crash": m("crash"), "red": round(sum(bool(h["red"]) for h in H) / n, 3),
                    "timeout": m("timeout"), "return": round(float(np.mean([h["ret"] for h in H])), 2), "bc_w": round(bc_w, 3), "fps": int(steps / (time.time() - t0))}
-            log.append(row); print(json.dumps(row), flush=True); json.dump(log, open(os.path.join(a.out, "log.json"), "w"))
+            log.append(row); print(json.dumps(row), flush=True)
+            json.dump(log, open(os.path.join(a.out, "log.json.tmp"), "w")); os.replace(os.path.join(a.out, "log.json.tmp"), os.path.join(a.out, "log.json"))
+        note(a.out, steps=steps, total=a.steps, updates=upd)
+        if a.snap_every and upd % a.snap_every == 0:   # the monitor's live page drives with this snapshot
+            export(model.actor.cpu(), os.path.join(a.out, "latest.json.tmp"), f"Training · {steps // 1000}k", steps); model.actor.to(dev)
+            os.replace(os.path.join(a.out, "latest.json.tmp"), os.path.join(a.out, "latest.json"))
         while milestones and steps >= milestones[0]:
             m_ = milestones.pop(0); export(model.actor.cpu(), os.path.join(a.out, f"step_{m_}.json"), f"PPO {m_ // 1000}k", m_); model.actor.to(dev)
-    export(model.actor.cpu(), os.path.join(a.out, "final.json"), "PPO tinh chỉnh", steps)
+    export(model.actor.cpu(), os.path.join(a.out, "final.json"), "PPO fine-tuned", steps)
     torch.save(model.state_dict(), os.path.join(a.out, "final.pt")); env.close()
 
 
@@ -105,6 +110,7 @@ if __name__ == "__main__":
     p.add_argument("--pool", default=None, help="JSON list of scenario genomes to train among (Phase 3)")
     p.add_argument("--p-pool", type=float, default=0.5, help="share of training scenes drawn from the pool")
     p.add_argument("--milestones", default="500000,1500000")
+    p.add_argument("--snap-every", type=int, default=10, help="write latest.json every N updates for the live monitor (0 = off)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--out", default=os.path.join(HERE, "runs", "finetune_v2"))
     main(p.parse_args())

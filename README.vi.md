@@ -1,6 +1,9 @@
 <div align="center">
 
-# 🪷 LOTUS · Autopilot-RL
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo/lotus-banner-dark.svg">
+  <img src="docs/logo/lotus-banner.svg" alt="LOTUS: self-driving in Vietnamese traffic" width="480">
+</picture>
 
 **L**ook-ahead **O**racle **T**eaching in **U**rban **S**warms
 
@@ -132,7 +135,32 @@ python pipeline.py --redo 3                         # chạy lại riêng giai �
 
 - **Có cửa kiểm tra giữa các giai đoạn.** Giai đoạn sau chỉ chạy khi giai đoạn trước đạt chuẩn trong `configs/default.yaml`, nên một người thầy còn yếu sẽ không làm hỏng các bước sau. Dùng `--force` để bỏ qua cửa kiểm tra.
 - **Chạy tiếp được sau khi bị ngắt.** Giai đoạn nào đã có kết quả thì được bỏ qua.
-- **Chạy nền trên server:** `nohup python pipeline.py > pipeline.log 2>&1 &` rồi `tail -f pipeline.log`.
+- **Chạy nền trên server:** chạy trong `screen`/`tmux` (hoặc `nohup python pipeline.py &`). Toàn bộ log cũng được ghi vào `rl/runs/pipeline.log`.
+
+### 📺 Xem quá trình học trực tiếp
+
+Khi pipeline bắt đầu, nó in ra link của **trang theo dõi huấn luyện**:
+
+```
+LOTUS training monitor is running
+  Open in a browser:      http://10.0.0.5:8765
+  Simulator, live:        http://10.0.0.5:8765/sim
+```
+
+Mở bằng trình duyệt bất cứ lúc nào trong khi train:
+
+- **Dashboard** (`/`): đang ở giai đoạn nào và tiến độ, đường học PPO (qua được, va chạm, vượt đỏ, hết giờ, phần thưởng), các vòng DAgger, bảng so sánh bộ lái, kho tình huống của giai đoạn 3 dạng bản đồ nhiệt, tải CPU/RAM/GPU/ổ đĩa và log trực tiếp. Tự cập nhật mỗi 4 giây.
+- **Mô phỏng** (`/sim`): thành phố với xe tự lái chạy bằng **checkpoint mới nhất** (PPO ghi một bản chụp sau mỗi 10 lần cập nhật); khi có bản mới, trang hiện nút để tải lại.
+
+Nếu cổng của server không truy cập được (tường lửa, server cloud), mở đường hầm từ máy của bạn: `ssh -L 8765:localhost:8765 user@server`, rồi vào `http://localhost:8765`.
+
+| Tuỳ chọn | Tác dụng |
+|---|---|
+| `--port 9000` | đổi cổng (cổng bận thì tự dùng cổng trống kế tiếp); `--port 0` tắt trang theo dõi |
+| `--bind 127.0.0.1` | chỉ vào được qua đường hầm SSH |
+| `--exit-when-done` | tắt trang theo dõi khi pipeline xong (mặc định vẫn mở đến khi bấm Ctrl+C để xem kết quả) |
+
+Trang theo dõi cũng chạy riêng được, ví dụ cho một script train chạy tay hoặc để xem lại kết quả đã xong: `python monitor/server.py --runs rl/runs --port 8765`. Nó chỉ dùng thư viện chuẩn của Python và không ghi gì vào thư mục runs.
 
 Thời gian tham khảo trên server 32 nhân CPU và 1 GPU:
 
@@ -271,6 +299,7 @@ Phần lớn các lượt "kẹt" là tắc đường thật ở những nút đ
 ```
 Autopilot-RL/
 ├── pipeline.py              # chạy cả đường ống 2 → 3 → 4, có cửa kiểm tra
+├── monitor/                 # trang theo dõi huấn luyện: server.py (web server thư viện chuẩn) + dashboard.html
 ├── configs/default.yaml     # mọi tham số chính
 ├── web/                     # Giai đoạn 1 + phần dùng chung
 │   ├── sim.js               #   lõi mô phỏng: khu phố, đèn, xe máy, bộ gen kịch bản, sao chép thế giới

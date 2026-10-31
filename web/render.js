@@ -38,7 +38,7 @@ function drawRider(g, x, shirt, helmet, hat) {
   g.beginPath(); g.ellipse(x, 0, 0.2, 0.29, 0, 0, 6.3); g.fill();
   g.strokeStyle = shirt; g.lineWidth = 0.1; g.lineCap = "round";
   if (x > -0.2) { g.beginPath(); g.moveTo(x + 0.05, -0.24); g.lineTo(0.4, -0.31); g.moveTo(x + 0.05, 0.24); g.lineTo(0.4, 0.31); g.stroke(); }
-  if (hat) {   // nón lá: a straw cone seen from above
+  if (hat) {   // conical hat (nón lá): a straw cone seen from above
     g.fillStyle = "#e7d6a3"; g.beginPath(); g.arc(x + 0.02, 0, 0.27, 0, 6.3); g.fill();
     g.strokeStyle = "rgba(120,95,40,.45)"; g.lineWidth = 0.02; g.beginPath(); g.arc(x + 0.02, 0, 0.18, 0, 6.3); g.stroke(); g.beginPath(); g.arc(x + 0.02, 0, 0.09, 0, 6.3); g.stroke();
   } else {

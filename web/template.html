@@ -24,11 +24,11 @@
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --ground: #2b2d2f; --panel: rgba(21, 24, 27, .86); --panel-solid: #15181b; --ink: #eef0eb; --ink-2: #a3abb0; --ink-3: #737b80;
-  --line: rgba(255, 255, 255, .1); --paint: #e8be3a; --paint-soft: rgba(232, 190, 58, .16);
+  --line: rgba(255, 255, 255, .1); --paint: #e8be3a; --paint-soft: rgba(232, 190, 58, .16); --logo-ring: rgba(255, 255, 255, .16);
   --go: #3fd07f; --wait: #f0b23a; --stop: #ff6a5c; --teal: #36d9c8; --teal-soft: rgba(54, 217, 200, .14); --shadow: 0 12px 34px rgba(0, 0, 0, .45), 0 1px 0 rgba(255, 255, 255, .05) inset; color-scheme: dark } }
 :root[data-theme="dark"] {
   --ground: #2b2d2f; --panel: rgba(21, 24, 27, .86); --panel-solid: #15181b; --ink: #eef0eb; --ink-2: #a3abb0; --ink-3: #737b80;
-  --line: rgba(255, 255, 255, .1); --paint: #e8be3a; --paint-soft: rgba(232, 190, 58, .16);
+  --line: rgba(255, 255, 255, .1); --paint: #e8be3a; --paint-soft: rgba(232, 190, 58, .16); --logo-ring: rgba(255, 255, 255, .16);
   --go: #3fd07f; --wait: #f0b23a; --stop: #ff6a5c; --teal: #36d9c8; --teal-soft: rgba(54, 217, 200, .14); --shadow: 0 12px 34px rgba(0, 0, 0, .45), 0 1px 0 rgba(255, 255, 255, .05) inset; color-scheme: dark }
 html, body { height: 100%; }
 body { background: var(--ground); color: var(--ink); font-family: var(--f-body); overflow: hidden; -webkit-font-smoothing: antialiased; }
@@ -45,10 +45,7 @@ body { background: var(--ground); color: var(--ink); font-family: var(--f-body);
 #tl { top: calc(14px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); width: 300px; }
 .brand { padding: 14px 16px 12px; }
 .brand h1 { margin: 0; font: 800 22px/1.1 var(--f-display); letter-spacing: -.01em; display: flex; align-items: center; gap: 10px; text-wrap: balance; }
-.brand h1 .mark { width: 22px; height: 22px; flex: none; border-radius: 6px; background: var(--ink); position: relative; overflow: hidden; }
-.brand h1 .mark::before, .brand h1 .mark::after { content: ""; position: absolute; background: var(--paint); }
-.brand h1 .mark::before { left: 9.5px; top: 0; bottom: 0; width: 3px; }
-.brand h1 .mark::after { top: 9.5px; left: 0; right: 0; height: 3px; }
+.brand h1 .mark { width: 26px; height: 26px; flex: none; }
 .brand p { margin: 6px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.45; }
 .tag { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 3px 8px; border-radius: 999px; background: var(--paint-soft); color: var(--ink); font-size: 11px; font-weight: 600; }
 .tag i { width: 6px; height: 6px; border-radius: 50%; background: var(--paint); }
@@ -185,83 +182,84 @@ input[type=range] { grid-column: span 2; width: 100%; accent-color: var(--paint)
 
 <div class="hud" id="tl">
   <div class="card brand">
-    <h1><span class="mark" aria-hidden="true"></span>LOTUS</h1>
-    <p>Một khu phố sinh ngẫu nhiên: ngã tư có đèn, nút không đèn, ngã ba, đường to nhỏ. Chiếc xe viền xanh ngọc là xe tự lái.</p>
-    <div class="brandrow"><span class="tag" id="cityTag"><i></i>Khu phố mẫu</span><button class="btn mini-btn" id="newCity" title="Sinh một khu phố khác">Bản đồ mới</button></div>
+    <h1><svg class="mark" viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="lmt" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#0b8c80"/><stop offset="1" stop-color="#35cbbb"/></linearGradient></defs>
+<rect width="120" height="120" rx="28" fill="#15181b"/><rect x=".75" y=".75" width="118.5" height="118.5" rx="27.3" fill="none" stroke="var(--logo-ring, transparent)" stroke-width="1.5"/><rect x="-4.80" y="-9.00" width="9.60" height="18.00" rx="4.80" fill="#f2b632" transform="translate(31 31) rotate(-8)"/><rect x="-4.80" y="-9.00" width="9.60" height="18.00" rx="4.80" fill="#f2b632" transform="translate(89 33) rotate(8)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#f2b632" transform="translate(25 64) rotate(-4)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#ef6f4c" transform="translate(50 73) rotate(5)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#f2b632" transform="translate(94 70) rotate(7)"/><rect x="-4.80" y="-9.00" width="9.60" height="18.00" rx="4.80" fill="#f2b632" transform="translate(85 101) rotate(-6)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#ef6f4c" transform="translate(27 98) rotate(4)"/><path d="M50 106 C50 88 75 84 73 65 C71 49 58 50 58 36" fill="none" stroke="url(#lmt)" stroke-width="10" stroke-linecap="round"/><path d="M58 14 L71 35 L45 35 Z" fill="#35cbbb" stroke="#35cbbb" stroke-width="5" stroke-linejoin="round"/></svg>LOTUS</h1>
+    <p>A procedurally generated neighbourhood: signalised crossroads, unsignalised junctions, T-junctions, main roads and side streets. The car with the teal outline drives itself.</p>
+    <div class="brandrow"><span class="tag" id="cityTag"><i></i>Sample district</span><button class="btn mini-btn" id="newCity" title="Generate another district">New map</button></div>
   </div>
   <div class="card phase" aria-live="off">
-    <div class="dirs"><span class="lamp" id="lampMain"></span><span id="phaseJ" class="pj">Nút 1</span><span id="phaseName">Đông – Tây</span></div>
+    <div class="dirs"><span class="lamp" id="lampMain"></span><span id="phaseJ" class="pj">Junction 1</span><span id="phaseName">East – West</span></div>
     <div class="count num" id="phaseLeft">00</div>
-    <div class="sub" id="phaseSub">Trục chính đang xanh</div>
+    <div class="sub" id="phaseSub">Main axis is green</div>
   </div>
   <div class="card av" id="av" hidden>
-    <div class="avhead"><span class="chip" aria-hidden="true"></span><b>Xe tự lái</b><span class="lbl">Ai đang lái</span></div>
-    <div class="seg" role="group" aria-label="Người lái" id="drvSeg"></div>
+    <div class="avhead"><span class="chip" aria-hidden="true"></span><b>Self-driving car</b><span class="lbl">Driver</span></div>
+    <div class="seg" role="group" aria-label="Driver" id="drvSeg"></div>
     <p class="avdesc" id="avDesc"></p>
     <div class="training" id="avTraining" hidden><i></i><span></span></div>
-    <div class="avlive"><span>Lượt <b id="avEp">1</b></span><span id="avRoute">–</span><span><b id="avSpeed">0 km/h</b></span><span>Điểm thưởng <b id="avRet">0</b></span></div>
+    <div class="avlive"><span>Episode <b id="avEp">1</b></span><span id="avRoute">–</span><span><b id="avSpeed">0 km/h</b></span><span>Reward <b id="avRet">0</b></span></div>
     <div class="tally">
-      <div class="ok"><div class="lbl">Qua được</div><div class="v" id="ta_ok">0</div></div>
-      <div class="crash"><div class="lbl">Va chạm</div><div class="v" id="ta_crash">0</div></div>
-      <div class="red"><div class="lbl">Vượt đỏ</div><div class="v" id="ta_red">0</div></div>
-      <div class="timeout"><div class="lbl">Hết giờ</div><div class="v" id="ta_timeout">0</div></div>
+      <div class="ok"><div class="lbl">Completed</div><div class="v" id="ta_ok">0</div></div>
+      <div class="crash"><div class="lbl">Crash</div><div class="v" id="ta_crash">0</div></div>
+      <div class="red"><div class="lbl">Ran red</div><div class="v" id="ta_red">0</div></div>
+      <div class="timeout"><div class="lbl">Timeout</div><div class="v" id="ta_timeout">0</div></div>
     </div>
-    <div class="avsub">Thời gian qua ngã tư trung bình <b id="avTime">–</b><br><span id="avEval"></span></div>
+    <div class="avsub">Mean time per route <b id="avTime">–</b><br><span id="avEval"></span></div>
     <div class="curvebox" id="curveBox" hidden>
-      <div class="legend"><span class="lbl" style="margin-right:auto">Quá trình học</span><span><i style="background:var(--go)"></i>Qua được</span><span><i style="background:var(--stop)"></i>Va chạm</span></div>
-      <canvas id="curve" aria-label="Tỉ lệ qua được và va chạm theo số bước huấn luyện"></canvas>
+      <div class="legend"><span class="lbl" style="margin-right:auto">Training progress</span><span><i style="background:var(--go)"></i>Completed</span><span><i style="background:var(--stop)"></i>Crash</span></div>
+      <canvas id="curve" aria-label="Completion and crash rate by training step"></canvas>
       <div id="curveTip"></div>
     </div>
-    <div class="avbtns"><button class="btn" id="avFollow" aria-pressed="true">Bám theo xe</button><button class="btn" id="avSee" aria-pressed="false">Xem xe thấy gì</button></div>
+    <div class="avbtns"><button class="btn" id="avFollow" aria-pressed="true">Follow car</button><button class="btn" id="avSee" aria-pressed="false">Show what it sees</button></div>
   </div>
 </div>
 
 <div class="hud" id="tr">
   <div class="card">
     <div class="stats">
-      <div class="stat"><div class="lbl">Trên đường</div><div class="v" id="sTotal">0<small>xe</small></div></div>
-      <div class="stat"><div class="lbl">Lưu lượng</div><div class="v" id="sFlow">0<small>xe/giờ</small></div></div>
-      <div class="stat wide"><div class="lbl">Tốc độ trung bình · 3 phút</div><div class="v" id="sSpeed">0<small>km/h</small></div><canvas id="spark"></canvas></div>
+      <div class="stat"><div class="lbl">On the road</div><div class="v" id="sTotal">0<small>vehicles</small></div></div>
+      <div class="stat"><div class="lbl">Flow</div><div class="v" id="sFlow">0<small>veh/h</small></div></div>
+      <div class="stat wide"><div class="lbl">Mean speed · 3 min</div><div class="v" id="sSpeed">0<small>km/h</small></div><canvas id="spark"></canvas></div>
     </div>
     <div class="risk">
-      <div><div class="lbl">Vượt đỏ</div><div class="v num" id="sRed">0</div><div class="lbl">/phút</div></div>
-      <div><div class="lbl">Suýt va</div><div class="v num" id="sNear">0</div><div class="lbl">/phút</div></div>
-      <div><div class="lbl">Bấm còi</div><div class="v num" id="sHonk">0</div><div class="lbl">/phút</div></div>
+      <div><div class="lbl">Red runs</div><div class="v num" id="sRed">0</div><div class="lbl">/min</div></div>
+      <div><div class="lbl">Near misses</div><div class="v num" id="sNear">0</div><div class="lbl">/min</div></div>
+      <div><div class="lbl">Honks</div><div class="v num" id="sHonk">0</div><div class="lbl">/min</div></div>
     </div>
     <div class="mix" id="mix"></div>
   </div>
-  <div class="card minicard"><canvas id="mini" aria-label="Bản đồ thu nhỏ, bấm để di chuyển tới"></canvas></div>
+  <div class="card minicard"><canvas id="mini" aria-label="Minimap, click to jump there"></canvas></div>
 </div>
 
 <div class="hud card" id="bar">
-  <button class="btn" id="play" aria-label="Tạm dừng"><svg viewBox="0 0 16 16"><path id="playIcon" d="M4 2h3v12H4zM9 2h3v12H9z"/></svg></button>
-  <div class="seg" role="group" aria-label="Tốc độ mô phỏng" id="speedSeg">
+  <button class="btn" id="play" aria-label="Pause"><svg viewBox="0 0 16 16"><path id="playIcon" d="M4 2h3v12H4zM9 2h3v12H9z"/></svg></button>
+  <div class="seg" role="group" aria-label="Simulation speed" id="speedSeg">
     <button data-speed="1" aria-pressed="true">1×</button><button data-speed="2" aria-pressed="false">2×</button><button data-speed="4" aria-pressed="false">4×</button>
   </div>
   <div class="sep"></div>
-  <label class="dens" for="density"><span class="lbl">Mật độ <b id="densName">Bình thường</b></span><input type="range" id="density" min="0.2" max="1.4" step="0.05" value="0.9"></label>
+  <label class="dens" for="density"><span class="lbl">Traffic <b id="densName">Normal</b></span><input type="range" id="density" min="0.2" max="1.4" step="0.05" value="0.9"></label>
   <div class="sep"></div>
-  <button class="btn" id="fit" title="Xem cả khu phố">Toàn cảnh</button>
+  <button class="btn" id="fit" title="Show the whole district">Overview</button>
 </div>
 
 <div class="hud card" id="insp" hidden>
   <div class="insp">
     <header>
-      <div><h2 id="iName">Xe máy</h2><div class="route" id="iRoute">Từ phía Đông · rẽ trái</div></div>
-      <button class="btn x" id="iClose" aria-label="Đóng">×</button>
+      <div><h2 id="iName">Motorbike</h2><div class="route" id="iRoute">From the east · turning left</div></div>
+      <button class="btn x" id="iClose" aria-label="Close">×</button>
     </header>
     <div class="irow">
-      <div><div class="lbl">Tốc độ</div><div class="v num" id="iSpeed">0 km/h</div></div>
-      <div><div class="lbl">Đã chờ</div><div class="v num" id="iWait">0 s</div></div>
-      <div style="margin-left:auto;align-self:end"><span class="state go" id="iState"><i></i><span>Đang chạy</span></span></div>
+      <div><div class="lbl">Speed</div><div class="v num" id="iSpeed">0 km/h</div></div>
+      <div><div class="lbl">Waited</div><div class="v num" id="iWait">0 s</div></div>
+      <div style="margin-left:auto;align-self:end"><span class="state go" id="iState"><i></i><span>Moving</span></span></div>
     </div>
-    <div class="lbl ilbl" id="iTraitsLbl">Tính cách</div>
+    <div class="lbl ilbl" id="iTraitsLbl">Personality</div>
     <div style="display:grid;gap:8px" id="iTraits"></div>
-    <button class="btn follow" id="iFollow" aria-pressed="false" style="justify-self:start;padding:0 10px;border:1px solid var(--line)">Bám theo xe này</button>
+    <button class="btn follow" id="iFollow" aria-pressed="false" style="justify-self:start;padding:0 10px;border:1px solid var(--line)">Follow this vehicle</button>
   </div>
 </div>
 <div class="toast" id="toast" hidden role="status"><i></i><span></span></div>
-<div class="hint" id="hint">Kéo để di chuyển · cuộn để phóng to · bấm vào xe để xem · bấm bản đồ nhỏ để nhảy tới</div>
+<div class="hint" id="hint">Drag to pan · scroll to zoom · click a vehicle to inspect · click the minimap to jump</div>
 
 <script>
 /*SIM*/

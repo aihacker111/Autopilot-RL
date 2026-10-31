@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LOTUS Training Monitor</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAuMCAxMjAuMCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSIxMjAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbD0iTE9UVVMgbWFyayI+PHRpdGxlPkxPVFVTIG1hcms8L3RpdGxlPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0ibXQiIHgxPSIwIiB5MT0iMSIgeDI9IjAiIHkyPSIwIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMwYjhjODAiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMzNWNiYmIiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz4KPHJlY3Qgd2lkdGg9IjEyMCIgaGVpZ2h0PSIxMjAiIHJ4PSIyOCIgZmlsbD0iIzE1MTgxYiIvPjxyZWN0IHg9Ii00LjgwIiB5PSItOS4wMCIgd2lkdGg9IjkuNjAiIGhlaWdodD0iMTguMDAiIHJ4PSI0LjgwIiBmaWxsPSIjZjJiNjMyIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgzMSAzMSkgcm90YXRlKC04KSIvPjxyZWN0IHg9Ii00LjgwIiB5PSItOS4wMCIgd2lkdGg9IjkuNjAiIGhlaWdodD0iMTguMDAiIHJ4PSI0LjgwIiBmaWxsPSIjZjJiNjMyIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg4OSAzMykgcm90YXRlKDgpIi8+PHJlY3QgeD0iLTQuNDgiIHk9Ii04LjQwIiB3aWR0aD0iOC45NiIgaGVpZ2h0PSIxNi44MCIgcng9IjQuNDgiIGZpbGw9IiNmMmI2MzIiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDI1IDY0KSByb3RhdGUoLTQpIi8+PHJlY3QgeD0iLTQuNDgiIHk9Ii04LjQwIiB3aWR0aD0iOC45NiIgaGVpZ2h0PSIxNi44MCIgcng9IjQuNDgiIGZpbGw9IiNlZjZmNGMiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDUwIDczKSByb3RhdGUoNSkiLz48cmVjdCB4PSItNC40OCIgeT0iLTguNDAiIHdpZHRoPSI4Ljk2IiBoZWlnaHQ9IjE2LjgwIiByeD0iNC40OCIgZmlsbD0iI2YyYjYzMiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoOTQgNzApIHJvdGF0ZSg3KSIvPjxyZWN0IHg9Ii00LjgwIiB5PSItOS4wMCIgd2lkdGg9IjkuNjAiIGhlaWdodD0iMTguMDAiIHJ4PSI0LjgwIiBmaWxsPSIjZjJiNjMyIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg4NSAxMDEpIHJvdGF0ZSgtNikiLz48cmVjdCB4PSItNC40OCIgeT0iLTguNDAiIHdpZHRoPSI4Ljk2IiBoZWlnaHQ9IjE2LjgwIiByeD0iNC40OCIgZmlsbD0iI2VmNmY0YyIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMjcgOTgpIHJvdGF0ZSg0KSIvPjxwYXRoIGQ9Ik01MCAxMDYgQzUwIDg4IDc1IDg0IDczIDY1IEM3MSA0OSA1OCA1MCA1OCAzNiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJ1cmwoI210KSIgc3Ryb2tlLXdpZHRoPSIxMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHBhdGggZD0iTTU4IDE0IEw3MSAzNSBMNDUgMzUgWiIgZmlsbD0iIzM1Y2JiYiIgc3Ryb2tlPSIjMzVjYmJiIiBzdHJva2Utd2lkdGg9IjUiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f2ec; --surface: #fcfcfb; --surface-2: #f0efec; --line: #e2e0d9; --grid: #ebe9e3;
+  --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #85847f;
+  --accent: #0f9f92; --accent-ink: #0b7a70; --accent-soft: rgba(15,159,146,.12);
+  --s-ok: #0ca30c; --s-crash: #d03b3b; --s-red: #ec835a; --s-timeout: #8b8a85; --s-return: #2a78d6;
+  --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #6da7ec; --seq-4: #3987e5; --seq-5: #256abf; --seq-6: #184f95; --seq-7: #0d366b;
+  --bad: #d03b3b; --warn: #b77b00; --good: #0a8a0a;
+  --f: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --line: #2e2e2b; --grid: #262624;
+  --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #8e8d86;
+  --accent: #2cc4b5; --accent-ink: #5fd8cc; --accent-soft: rgba(44,196,181,.14);
+  --s-ok: #0ca30c; --s-crash: #e66767; --s-red: #ec835a; --s-timeout: #8e8d86; --s-return: #3987e5;
+  --seq-1: #0d366b; --seq-2: #104281; --seq-3: #184f95; --seq-4: #256abf; --seq-5: #3987e5; --seq-6: #6da7ec; --seq-7: #b7d3f6;
+  --bad: #e66767; --warn: #e0a42a; --good: #3fc23f; --logo-ring: rgba(255, 255, 255, .16);
+}}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --line: #2e2e2b; --grid: #262624;
+  --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #8e8d86;
+  --accent: #2cc4b5; --accent-ink: #5fd8cc; --accent-soft: rgba(44,196,181,.14);
+  --s-ok: #0ca30c; --s-crash: #e66767; --s-red: #ec835a; --s-timeout: #8e8d86; --s-return: #3987e5;
+  --seq-1: #0d366b; --seq-2: #104281; --seq-3: #184f95; --seq-4: #256abf; --seq-5: #3987e5; --seq-6: #6da7ec; --seq-7: #b7d3f6;
+  --bad: #e66767; --warn: #e0a42a; --good: #3fc23f; --logo-ring: rgba(255, 255, 255, .16);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--f); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: .02em; }
+.brand .mark { width: 30px; height: 30px; }
+.brand small { font-weight: 500; color: var(--ink-2); font-size: 14px; letter-spacing: 0; }
+.live { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 13px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+.dot.on { background: var(--s-ok); box-shadow: 0 0 0 0 rgba(12,163,12,.5); animation: pulse 2s infinite; }
+.dot.off { background: var(--bad); }
+@keyframes pulse { 70% { box-shadow: 0 0 0 7px rgba(12,163,12,0); } 100% { box-shadow: 0 0 0 0 rgba(12,163,12,0); } }
+@media (prefers-reduced-motion: reduce) { .dot.on { animation: none; } }
+.spacer { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 10px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; border: 0; cursor: pointer; }
+.btn:hover { filter: brightness(1.06); }
+.btn.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--line); }
+.btn:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; min-width: 0; }
+.card h2 { margin: 0 0 2px; font-size: 15px; font-weight: 600; }
+.card .sub { margin: 0 0 12px; color: var(--ink-2); font-size: 13px; }
+.grid { display: grid; gap: 14px; }
+.g-main { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.g-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 900px) { .g-main, .g-2 { grid-template-columns: minmax(0, 1fr); } }
+section { margin-top: 14px; }
+
+/* stepper */
+.steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 760px) { .steps { grid-template-columns: minmax(0, 1fr); } }
+.step { position: relative; padding: 12px 14px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); min-width: 0; }
+.step .k { font: 600 11px var(--mono); color: var(--ink-3); letter-spacing: .06em; text-transform: uppercase; display: flex; gap: 6px; align-items: center; }
+.step .t { font-weight: 600; margin-top: 3px; }
+.step .d { color: var(--ink-2); font-size: 12.5px; margin-top: 2px; min-height: 18px; }
+.step .bar { height: 4px; border-radius: 4px; background: var(--surface-2); margin-top: 9px; overflow: hidden; }
+.step .bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; width: 0; transition: width .6s; }
+.step.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.step.done .k { color: var(--good); }
+.step.failed { border-color: var(--bad); }
+.step.failed .k { color: var(--bad); }
+.step.skip { opacity: .55; }
+.badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font: 600 10.5px var(--f); letter-spacing: .02em; text-transform: none; }
+.badge.run { background: var(--accent-soft); color: var(--accent-ink); }
+.badge.ok { background: rgba(12,163,12,.12); color: var(--good); }
+.badge.bad { background: rgba(208,59,59,.12); color: var(--bad); }
+
+/* KPI */
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 900px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpi .v { font-size: 20px; } }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 11px 14px; min-width: 0; }
+.kpi .l { color: var(--ink-2); font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+.kpi .v { font: 600 24px/1.2 var(--f); margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi .h { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sw { width: 10px; height: 10px; border-radius: 3px; flex: none; display: inline-block; }
+
+/* tabs, legend */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.tabs button { font: 500 13px var(--f); padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--ink-2); cursor: pointer; }
+.tabs button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--ink-2); font-size: 12.5px; margin: 0 0 6px; }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart text { font: 11px var(--f); fill: var(--ink-3); }
+.chart .lbl { fill: var(--ink-2); font-weight: 600; }
+.empty { display: grid; place-items: center; height: 160px; color: var(--ink-3); font-size: 13px; border: 1px dashed var(--line); border-radius: 10px; text-align: center; padding: 10px; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 8px 24px rgba(0,0,0,.14); z-index: 5; min-width: 150px; display: none; }
+.tip b { font-weight: 600; }
+.tip .r { display: flex; align-items: center; gap: 7px; justify-content: space-between; }
+.tip .r span:first-child { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); }
+.tip .r span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+.progress { display: flex; align-items: center; gap: 10px; margin: 2px 0 12px; color: var(--ink-2); font-size: 12.5px; }
+.progress .bar { flex: 1; height: 6px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.progress .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .6s; }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+th { text-align: right; font-weight: 500; color: var(--ink-2); padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+tr.hl td { font-weight: 600; }
+td .neg { color: var(--bad); } td .pos { color: var(--good); }
+.tblwrap { overflow-x: auto; }
+
+/* heatmap */
+.heat { display: grid; grid-template-columns: 92px repeat(6, minmax(0, 1fr)); gap: 2px; font-size: 11.5px; }
+.heat .c { aspect-ratio: 1.6; border-radius: 4px; background: var(--surface-2); border: 1px dashed var(--line); display: grid; place-items: center; font: 600 11px var(--f); color: transparent; cursor: default; }
+.heat .c.f { border: 0; }
+.heat .c.f.lt { color: #0b0b0b; } .heat .c.f.dk { color: #fff; }
+.heat .rl { color: var(--ink-2); display: flex; align-items: center; padding-right: 6px; line-height: 1.15; }
+.heat .cl { color: var(--ink-2); text-align: center; line-height: 1.15; padding-top: 4px; }
+.ramp { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 12px; margin-top: 10px; }
+.ramp i { height: 8px; width: 140px; border-radius: 4px; background: linear-gradient(90deg, var(--seq-1), var(--seq-4), var(--seq-7)); }
+
+/* meters */
+.meter { margin: 0 0 11px; }
+.meter .row { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 12.5px; gap: 8px; }
+.meter .row b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.meter .bar { height: 6px; background: var(--surface-2); border-radius: 6px; overflow: hidden; margin-top: 4px; }
+.meter .bar i { display: block; height: 100%; width: 0; background: var(--ink-2); border-radius: 6px; transition: width .6s; }
+.meter.hot .bar i { background: var(--bad); }
+
+/* log */
+pre.log { margin: 0; max-height: 360px; overflow: auto; background: var(--surface-2); border-radius: 10px; padding: 12px 14px; font: 12px/1.55 var(--mono); color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+.loghead { display: flex; align-items: center; gap: 10px; }
+.loghead label { margin-left: auto; color: var(--ink-2); font-size: 12.5px; display: inline-flex; gap: 6px; align-items: center; }
+.err { margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: rgba(208,59,59,.1); color: var(--bad); display: none; }
+.note { color: var(--ink-3); font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="lmt" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#0b8c80"/><stop offset="1" stop-color="#35cbbb"/></linearGradient></defs>
+<rect width="120" height="120" rx="28" fill="#15181b"/><rect x=".75" y=".75" width="118.5" height="118.5" rx="27.3" fill="none" stroke="var(--logo-ring, transparent)" stroke-width="1.5"/><rect x="-4.80" y="-9.00" width="9.60" height="18.00" rx="4.80" fill="#f2b632" transform="translate(31 31) rotate(-8)"/><rect x="-4.80" y="-9.00" width="9.60" height="18.00" rx="4.80" fill="#f2b632" transform="translate(89 33) rotate(8)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#f2b632" transform="translate(25 64) rotate(-4)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#ef6f4c" transform="translate(50 73) rotate(5)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#f2b632" transform="translate(94 70) rotate(7)"/><rect x="-4.80" y="-9.00" width="9.60" height="18.00" rx="4.80" fill="#f2b632" transform="translate(85 101) rotate(-6)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#ef6f4c" transform="translate(27 98) rotate(4)"/><path d="M50 106 C50 88 75 84 73 65 C71 49 58 50 58 36" fill="none" stroke="url(#lmt)" stroke-width="10" stroke-linecap="round"/><path d="M58 14 L71 35 L45 35 Z" fill="#35cbbb" stroke="#35cbbb" stroke-width="5" stroke-linejoin="round"/></svg>
+      LOTUS <small>Training monitor</small>
+    </div>
+    <span class="live"><span class="dot" id="dot"></span><span id="liveTxt">Connecting…</span></span>
+    <span class="spacer"></span>
+    <span class="live" id="hostName"></span>
+    <a class="btn" href="/sim?driver=latest" target="_blank" rel="noopener">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 17h14M6 17l1.5-6h9L18 17M8 21v-4m8 4v-4M9 7l1-3h4l1 3"/></svg>
+      Watch it drive
+    </a>
+  </header>
+
+  <div class="steps" id="steps"></div>
+  <div class="err" id="err"></div>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid g-main">
+    <div class="card">
+      <h2>PPO learning curve</h2>
+      <p class="sub" id="ppoSub">Outcome rates over the last 300 episodes, by training step.</p>
+      <div class="tabs" id="ppoTabs"></div>
+      <div class="progress" id="ppoProg" hidden><div class="bar"><i id="ppoBar"></i></div><span id="ppoProgTxt"></span></div>
+      <div class="legend" id="ppoLegend"></div>
+      <div class="chart" id="ppoChart"></div>
+      <h2 style="margin-top:16px">Mean reward per episode</h2>
+      <div class="chart" id="retChart"></div>
+    </div>
+    <div class="grid" style="align-content:start">
+      <div class="card">
+        <h2>Server</h2>
+        <p class="sub" id="hostSub">Current load.</p>
+        <div id="meters"></div>
+      </div>
+      <div class="card">
+        <h2>Latest checkpoints</h2>
+        <p class="sub">The simulator drives with these networks. Reload it to pick up new ones.</p>
+        <div class="tblwrap"><table id="ckTbl"></table></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid g-2">
+    <div class="card">
+      <h2>Teacher → student distillation (DAgger)</h2>
+      <p class="sub">Each round the student drives more of the time and the teacher corrects every decision. Scored on the fixed evaluation suite.</p>
+      <div class="tblwrap"><table id="distTbl"></table></div>
+    </div>
+    <div class="card">
+      <h2>Driver comparison</h2>
+      <p class="sub">Same evaluation suite: 4 map sizes × 3 traffic densities.</p>
+      <div class="tblwrap"><table id="evalTbl"></table></div>
+    </div>
+  </section>
+
+  <section class="grid g-2">
+    <div class="card">
+      <h2>Co-evolution · hard-scenario archive</h2>
+      <p class="sub" id="coSub">Each cell holds the hardest realistic scenario found for that density and road-user behaviour.</p>
+      <div id="heat"></div>
+    </div>
+    <div class="card">
+      <h2>Archive coverage</h2>
+      <p class="sub">Share of the 5 × 6 grid holding a scenario, after each search batch.</p>
+      <div class="chart" id="covChart"></div>
+      <div class="tblwrap" style="margin-top:12px"><table id="genTbl"></table></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="loghead"><h2>Log</h2><span class="sub" style="margin:0" id="logSub"></span>
+      <label><input type="checkbox" id="follow" checked> Auto-scroll</label></div>
+    <pre class="log" id="log">…</pre>
+  </section>
+  <p class="note" id="foot"></p>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const pct = (x, d) => x == null || isNaN(x) ? "–" : (100 * x).toFixed(d == null ? (x > 0 && x < 0.1 ? 1 : 0) : d) + "%";
+  const kfmt = (n) => n == null ? "–" : n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 2).replace(/\.?0+$/, "") + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(Math.round(n));
+  const gb = (b) => b == null ? "–" : (b / 2 ** 30).toFixed(b < 10 * 2 ** 30 ? 1 : 0) + " GB";
+  const dur = (s) => { if (s == null || !isFinite(s)) return "–"; s = Math.max(0, s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} h ${m} min` : m ? `${m} min` : `${Math.round(s)} s`; };
+  const ago = (t, now) => t ? dur(now - t) + " ago" : "–";
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const OUT = [{ key: "ok", label: "Completed", c: "--s-ok" }, { key: "crash", label: "Crash", c: "--s-crash" }, { key: "red", label: "Red light", c: "--s-red" }, { key: "timeout", label: "Timeout", c: "--s-timeout" }];
+  const BEH = ["Ordinary", "Wrong-way", "Cut-in", "Early left", "Sudden brake", "Aggressive"];
+  const DENS = ["Very light", "Light", "Medium", "Busy", "Very busy"];
+  let S = null, ppoSel = null, userPicked = false;
+
+  /* ---------------------------------------------------------------- line chart with crosshair */
+  function lineChart(el, rows, opt) {
+    const W = Math.max(280, el.clientWidth), H = opt.h || 240, m = { l: 42, r: opt.labels ? 124 : 14, t: 10, b: 26 };
+    if (!rows || rows.length < 1) { el.innerHTML = `<div class="empty">${opt.empty || "No data yet."}</div>`; return; }
+    const xs = rows.map((r) => r[opt.x]), x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 1);
+    let y0 = opt.y0 ?? Infinity, y1 = opt.y1 ?? -Infinity;
+    if (opt.y0 == null || opt.y1 == null) for (const r of rows) for (const s of opt.series) { const v = r[s.key]; if (v != null) { if (opt.y0 == null) y0 = Math.min(y0, v); if (opt.y1 == null) y1 = Math.max(y1, v); } }
+    if (y1 - y0 < 1e-9) { y1 += 1; y0 -= 1; }
+    const pad = opt.y0 == null ? (y1 - y0) * 0.08 : 0; y0 -= pad; if (opt.y1 == null) y1 += pad;
+    const X = (v) => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r), Y = (v) => m.t + (1 - (v - y0) / (y1 - y0)) * (H - m.t - m.b);
+    const ticks = niceTicks(y0, y1, 4), xt = niceTicks(x0, x1, Math.max(2, Math.floor(W / 120)));
+    let g = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc(opt.aria || "")}">`;
+    for (const t of ticks) g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(t)}" y2="${Y(t)}" stroke="${css("--grid")}" stroke-width="1"/><text x="${m.l - 8}" y="${Y(t) + 4}" text-anchor="end">${opt.yFmt(t)}</text>`;
+    for (const t of xt) if (t >= x0 && t <= x1) g += `<text x="${X(t)}" y="${H - 7}" text-anchor="middle">${opt.xFmt(t)}</text>`;
+    g += `<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" stroke="${css("--line")}"/>`;
+    for (const v of opt.marks || []) g += `<line x1="${X(v.x)}" x2="${X(v.x)}" y1="${m.t}" y2="${H - m.b}" stroke="${css("--line")}" stroke-dasharray="3 3"/><text x="${X(v.x) + 4}" y="${m.t + 10}">${esc(v.label)}</text>`;
+    const ends = [];
+    for (const s of opt.series) {
+      const pts = rows.filter((r) => r[s.key] != null).map((r) => [X(r[opt.x]), Y(r[s.key])]);
+      if (!pts.length) continue;
+      const col = css(s.c);
+      if (pts.length === 1) g += `<circle cx="${pts[0][0]}" cy="${pts[0][1]}" r="4" fill="${col}" stroke="${css("--surface")}" stroke-width="2"/>`;
+      else g += `<path d="M${pts.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join("L")}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      const last = rows.filter((r) => r[s.key] != null).slice(-1)[0];
+      ends.push({ y: pts[pts.length - 1][1], x: pts[pts.length - 1][0], col, text: `${s.label} ${opt.yFmt(last[s.key], true)}` });
+    }
+    if (opt.labels) {   // direct labels at the line ends, nudged apart so they never overlap
+      ends.sort((a, b) => a.y - b.y);
+      for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 13) ends[i].y = ends[i - 1].y + 13;
+      for (const e of ends) g += `<circle cx="${W - m.r + 8}" cy="${e.y}" r="3.5" fill="${e.col}"/><text class="lbl" x="${W - m.r + 15}" y="${e.y + 4}">${esc(e.text)}</text>`;
+    }
+    g += `<line class="xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" stroke="${css("--ink-3")}" stroke-width="1" visibility="hidden"/>`;
+    g += opt.series.map((s, i) => `<circle class="hd" data-i="${i}" r="4.5" fill="${css(s.c)}" stroke="${css("--surface")}" stroke-width="2" visibility="hidden"/>`).join("");
+    g += `<rect x="${m.l}" y="0" width="${W - m.l - m.r}" height="${H}" fill="transparent" class="hit"/></svg><div class="tip"></div>`;
+    el.innerHTML = g;
+    const svg = el.querySelector("svg"), tip = el.querySelector(".tip"), xh = el.querySelector(".xh"), dots = el.querySelectorAll(".hd");
+    const move = (ev) => {
+      const b = svg.getBoundingClientRect(), px = (ev.clientX - b.left) * W / b.width;
+      let best = 0, bd = Infinity; rows.forEach((r, i) => { const d = Math.abs(X(r[opt.x]) - px); if (d < bd) { bd = d; best = i; } });
+      const r = rows[best], cx = X(r[opt.x]);
+      xh.setAttribute("x1", cx); xh.setAttribute("x2", cx); xh.setAttribute("visibility", "visible");
+      dots.forEach((d) => { const s = opt.series[+d.dataset.i], v = r[s.key]; if (v == null) { d.setAttribute("visibility", "hidden"); return; } d.setAttribute("cx", cx); d.setAttribute("cy", Y(v)); d.setAttribute("visibility", "visible"); });
+      tip.innerHTML = `<b>${esc(opt.tipTitle(r))}</b>` + opt.series.map((s) => r[s.key] == null ? "" : `<div class="r"><span><i class="sw" style="background:${css(s.c)}"></i>${s.label}</span><span>${opt.yFmt(r[s.key], true)}</span></div>`).join("") + (opt.tipExtra ? opt.tipExtra(r) : "");
+      tip.style.display = "block";
+      const left = cx * b.width / W; tip.style.left = Math.min(b.width - tip.offsetWidth - 4, Math.max(0, left + 14 + (left > b.width * 0.6 ? -tip.offsetWidth - 28 : 0))) + "px"; tip.style.top = "8px";
+    };
+    const hide = () => { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); dots.forEach((d) => d.setAttribute("visibility", "hidden")); };
+    svg.addEventListener("pointermove", move); svg.addEventListener("pointerleave", hide);
+  }
+  function niceTicks(a, b, n) {
+    const raw = (b - a) / Math.max(1, n), mag = 10 ** Math.floor(Math.log10(raw)), f = raw / mag;
+    const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * mag, out = [];
+    for (let t = Math.ceil(a / step) * step; t <= b + step * 1e-6; t += step) out.push(+t.toFixed(10));
+    return out;
+  }
+  const legend = (el, series) => { el.innerHTML = series.map((s) => `<span><i class="sw" style="background:${css(s.c)}"></i>${s.label}</span>`).join(""); };
+
+  /* ---------------------------------------------------------------- pipeline stages */
+  const STAGES = [
+    { id: "2.baseline", k: "2 · A", t: "Baselines", files: ["eval.planner"] },
+    { id: "2.distill", k: "2 · B", t: "Teacher → student" },
+    { id: "2.finetune", k: "2 · C", t: "PPO fine-tuning" },
+    { id: "3.coevolve", k: "3", t: "Co-evolution" },
+    { id: "4.carla", k: "4", t: "Camera in CARLA" },
+  ];
+  function stageInfo(s) {
+    const P = s.pipeline || {}, hist = P.history || [], now = s.now, fresh = (t) => t && now - t < 180;
+    const ft = (s.ppo || []).find((r) => r.id === "finetune_v2"), D = s.distill.status, C = s.coevolve.status;
+    const out = {};
+    for (const st of STAGES) {
+      const h = hist.filter((x) => x.key === st.id || (st.id === "2.finetune" && x.key === "2.eval")).slice(-1)[0];
+      let state = h ? h.state : "pending", detail = "", prog = null;
+      if (st.id === "2.baseline") { if (!h && s.eval.planner) state = "done"; detail = s.eval.planner ? `Teacher ${pct(s.eval.planner.ok)} · rule-based ${pct((s.eval.idm || {}).ok)}` : "Scoring the teacher and the rule-based driver"; }
+      if (st.id === "2.distill") {
+        if (D) { const R = D.rounds || 1, part = { gen: 0.15, train: 0.75, eval: 0.9, done: 1 }[D.step] ?? 0; prog = (D.round + part) / R;
+          detail = D.step === "done" ? `Done · ${R} rounds` : `Round ${D.round + 1}/${R} · ${{ gen: "teacher labelling data", train: "student training", eval: "evaluating" }[D.step] || D.step}`;
+          if (!h) state = D.step === "done" ? "done" : fresh(D.t) ? "active" : "pending"; }
+        else detail = "The teacher labels, the student imitates";
+      }
+      if (st.id === "2.finetune") {
+        if (ft) { const last = ft.rows[ft.rows.length - 1]; prog = ft.total ? Math.min(1, last.steps / ft.total) : null;
+          detail = ft.done ? `Done · ${kfmt(last.steps)} steps` : `${kfmt(last.steps)}${ft.total ? " / " + kfmt(ft.total) : ""} steps · ${pct(last.ok)} completed`;
+          if (!h) state = ft.done ? "done" : fresh(ft.updated) ? "active" : "pending"; }
+        else detail = "Improves further from reward";
+        if (s.eval.phase2 && s.eval.phase2.ok != null) detail = `Final: ${pct(s.eval.phase2.ok)} completed · ${pct(s.eval.phase2.crash)} crash`;
+      }
+      if (st.id === "3.coevolve") {
+        if (C) { const G = C.gens || 1, part = { heldout: 0, search: 0.2, finetune: 0.6, done: 1 }[C.step] ?? 0;
+          const gr = (s.ppo || []).find((r) => r.id === `coevolve/ft_g${C.gen}`);
+          let fp = part; if (C.step === "finetune" && gr && gr.total) fp = 0.6 + 0.4 * Math.min(1, gr.rows[gr.rows.length - 1].steps / gr.total);
+          prog = C.step === "done" ? 1 : (C.gen + fp) / G;
+          detail = C.step === "done" ? `Done · ${G} generations` : C.step === "heldout" ? "Building the held-out test set" : `Gen ${C.gen + 1}/${G} · ${{ search: "population searching for hard scenarios", finetune: "car retraining" }[C.step] || C.step}`;
+          if (!h) state = C.step === "done" ? "done" : fresh(C.t) ? "active" : "pending"; }
+        else detail = "Population and car evolve together";
+      }
+      if (st.id === "4.carla") { const L = s.phase4.log || []; detail = s.phase4.result ? "Done" : L.length ? `Round ${L.length}` : "Student learns from cameras"; if (!h && s.phase4.result) state = "done"; }
+      if (P.stages && !P.stages.includes(st.id[0]) && state === "pending") state = "skip";
+      out[st.id] = { state, detail, prog: state === "done" ? 1 : prog };
+    }
+    return out;
+  }
+  function renderSteps(s) {
+    const info = stageInfo(s);
+    $("steps").innerHTML = STAGES.map((st) => {
+      const i = info[st.id], b = { active: '<span class="badge run">running</span>', done: '<span class="badge ok">done</span>', failed: '<span class="badge bad">stopped</span>', skip: '<span class="badge">skipped</span>' }[i.state] || "";
+      return `<div class="step ${i.state}"><div class="k">${st.k} ${b}</div><div class="t">${st.t}</div><div class="d">${esc(i.detail)}</div><div class="bar"><i style="width:${i.prog == null ? 0 : (100 * i.prog).toFixed(1)}%"></i></div></div>`;
+    }).join("");
+    const P = s.pipeline || {};
+    $("err").style.display = P.state === "failed" ? "block" : "none";
+    if (P.state === "failed") $("err").textContent = "Pipeline stopped: " + (P.error || "see the log below.");
+  }
+
+  /* ---------------------------------------------------------------- KPIs */
+  function renderKpis(s) {
+    const runs = s.ppo || [], cur = runs.slice().sort((a, b) => b.updated - a.updated)[0];
+    const last = cur ? cur.rows[cur.rows.length - 1] : null, P = s.pipeline || {};
+    const eta = cur && cur.total && last && last.fps && !cur.done ? (cur.total - last.steps) / last.fps : null;
+    const k = [
+      { l: "Completed", c: "--s-ok", v: last ? pct(last.ok) : "–", h: cur ? cur.name : "no PPO run yet" },
+      { l: "Crash", c: "--s-crash", v: last ? pct(last.crash) : "–", h: "caused by the car" },
+      { l: "Red light", c: "--s-red", v: last ? pct(last.red) : "–", h: "of all episodes" },
+      { l: "Steps trained", v: last ? kfmt(last.steps) : "–", h: cur && cur.total ? `of ${kfmt(cur.total)} · ${pct(last.steps / cur.total)}` : "" },
+      { l: "Sim speed", v: last && last.fps ? kfmt(last.fps) + "/s" : "–", h: eta ? "about " + dur(eta) + " left" : "steps per second" },
+      { l: "Running for", v: P.started ? dur((P.ended || s.now) - P.started) : "–", h: P.state === "done" ? "pipeline finished" : P.started ? "since " + new Date(P.started * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "" },
+    ];
+    $("kpis").innerHTML = k.map((x) => `<div class="kpi"><div class="l">${x.c ? `<i class="sw" style="background:${css(x.c)}"></i>` : ""}${x.l}</div><div class="v">${x.v}</div><div class="h">${esc(x.h)}</div></div>`).join("");
+  }
+
+  /* ---------------------------------------------------------------- PPO curves */
+  function renderPPO(s) {
+    const runs = s.ppo || [];
+    if (!userPicked || !runs.find((r) => r.id === ppoSel)) { const cur = runs.slice().sort((a, b) => b.updated - a.updated)[0]; ppoSel = cur ? cur.id : null; }
+    $("ppoTabs").innerHTML = runs.map((r) => `<button data-id="${esc(r.id)}" aria-pressed="${r.id === ppoSel}">${esc(r.name)}</button>`).join("");
+    $("ppoTabs").querySelectorAll("button").forEach((b) => b.onclick = () => { ppoSel = b.dataset.id; userPicked = true; renderPPO(S); });
+    const run = runs.find((r) => r.id === ppoSel), rows = run ? run.rows : [];
+    legend($("ppoLegend"), rows.length ? OUT : []);
+    const empty = "PPO has not started yet. The curve appears here once step 2 · C runs.";
+    lineChart($("ppoChart"), rows, { x: "steps", series: OUT, y0: 0, y1: 1, labels: true, h: 250, empty, aria: "Outcome rates by training step",
+      yFmt: (v, exact) => exact ? pct(v, 1) : Math.round(v * 100) + "%", xFmt: kfmt, tipTitle: (r) => `${kfmt(r.steps)} steps · ${r.minutes ?? "–"} min`,
+      tipExtra: (r) => r.bc_w != null ? `<div class="r"><span>Imitation weight</span><span>${r.bc_w}</span></div>` : "" });
+    lineChart($("retChart"), rows, { x: "steps", series: [{ key: "return", label: "Reward", c: "--s-return" }], h: 150, empty: "–", aria: "Mean reward",
+      yFmt: (v) => (+v).toFixed(Math.abs(v) < 10 ? 1 : 0), xFmt: kfmt, tipTitle: (r) => `${kfmt(r.steps)} steps` });
+    const pr = $("ppoProg");
+    if (run && run.total) { const st = rows[rows.length - 1].steps; pr.hidden = false; $("ppoBar").style.width = Math.min(100, 100 * st / run.total) + "%"; $("ppoProgTxt").textContent = run.done ? "Finished" : `${kfmt(st)} / ${kfmt(run.total)} steps`; }
+    else pr.hidden = true;
+  }
+
+  /* ---------------------------------------------------------------- tables */
+  const row = (cells, cls) => `<tr${cls ? ` class="${cls}"` : ""}>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`;
+  function renderTables(s) {
+    const D = s.distill.log || [];
+    $("distTbl").innerHTML = D.length ? `<tr><th>Round</th><th>Teacher drives</th><th>Samples</th><th>Completed</th><th>Crash</th><th>Red light</th><th>Time</th></tr>` +
+      D.map((r) => row([r.round + 1, pct(r.beta), kfmt(r.samples), pct(r.eval.ok), pct(r.eval.crash), pct(r.eval.red), `${(r.gen_min + r.train_min).toFixed(0)} min`])).join("")
+      : `<tr><td class="empty" style="height:90px">${s.distill.status ? "First round running; results appear after evaluation." : "Not started."}</td></tr>`;
+    const E = s.eval, co = s.coevolve.result, items = [];
+    if (E.idm) items.push(["Rule-based (IDM)", E.idm]);
+    if (E.planner) items.push(["Look-ahead teacher", E.planner]);
+    D.length && items.push([`Student, round ${D.length}`, D[D.length - 1].eval]);
+    if (E.phase2 && E.phase2.ok != null) items.push(["After PPO (phase 2)", E.phase2, "hl"]);
+    $("evalTbl").innerHTML = items.length ? `<tr><th>Driver</th><th>Completed</th><th>Crash</th><th>Red light</th><th>Timeout</th></tr>` +
+      items.map(([n, e, c]) => row([esc(n), pct(e.ok), pct(e.crash), pct(e.red), pct(e.timeout)], c)).join("") +
+      (co ? `<tr><th colspan="5" style="text-align:left;padding-top:14px">Phase 3 · on held-out hard scenarios</th></tr>` +
+        row(["Before co-evolution", pct(co.heldout_before.ok), pct(co.heldout_before.crash), pct(co.heldout_before.red), pct(co.heldout_before.timeout)]) +
+        (co.heldout_after ? row(["After co-evolution", pct(co.heldout_after.ok), pct(co.heldout_after.crash), pct(co.heldout_after.red), pct(co.heldout_after.timeout)], "hl") : "") : "")
+      : `<tr><td class="empty" style="height:90px">Step 2 · A is evaluating.</td></tr>`;
+    const G = s.coevolve.log || [];
+    $("genTbl").innerHTML = G.length ? `<tr><th>Gen</th><th>Cells filled</th><th>Mean difficulty</th><th>Held-out: completed</th><th>crash</th></tr>` +
+      G.map((r) => row([r.gen + 1, r.cells, r.elite_difficulty.toFixed(2), `${pct(r.heldout_before.ok)} → <b>${pct(r.heldout_now.ok)}</b>`, `${pct(r.heldout_before.crash)} → <b>${pct(r.heldout_now.crash)}</b>`])).join("") : "";
+  }
+
+  /* ---------------------------------------------------------------- MAP-Elites heatmap */
+  function renderHeat(s) {
+    const A = s.coevolve.archive, C = s.coevolve.status;
+    if (!A || !A.cells) { $("heat").innerHTML = `<div class="empty">Archive empty. Cells fill in once phase 3 starts searching.</div>`; return; }
+    const grid = {}; let mx = 0.01;
+    for (const c of A.cells) { grid[c.cell[0] + "," + c.cell[1]] = c; mx = Math.max(mx, c.difficulty); }
+    const ramp = [1, 2, 3, 4, 5, 6, 7].map((i) => css("--seq-" + i)), dark = matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light" || document.documentElement.dataset.theme === "dark";
+    let h = `<div class="heat"><div></div>${BEH.map((b) => `<div class="cl">${b}</div>`).join("")}`;
+    for (let d = 4; d >= 0; d--) {
+      h += `<div class="rl">${DENS[d]}</div>`;
+      for (let b = 0; b < 6; b++) {
+        const c = grid[d + "," + b];
+        if (!c) { h += `<div class="c" title="${DENS[d]} · ${BEH[b]}: empty"></div>`; continue; }
+        const i = Math.min(6, Math.floor(c.difficulty / mx * 6.999)), light = dark ? i < 4 : i < 3;
+        h += `<div class="c f ${light ? "lt" : "dk"}" style="background:${ramp[i]}" title="${DENS[d]} · ${BEH[b]}&#10;Difficulty ${c.difficulty.toFixed(2)} · crash ${pct(c.crash)} · completed ${pct(c.ok)}&#10;Realism ${(+c.realism).toFixed(2)}">${c.difficulty.toFixed(2)}</div>`;
+      }
+    }
+    h += `</div><div class="ramp"><span>Easy</span><i></i><span>Hard (${mx.toFixed(2)})</span><span style="margin-left:auto">${A.cells.length}/30 cells</span></div>`;
+    $("heat").innerHTML = h;
+    $("coSub").textContent = C ? (C.step === "done" ? "Final archive. " : `Gen ${C.gen + 1}/${C.gens} · `) + "Each cell holds the hardest realistic scenario for that density and road-user behaviour. The number is its difficulty." : "Each cell holds the hardest realistic scenario for that density and road-user behaviour.";
+  }
+  function renderCov(s) {
+    const P = (s.coevolve.progress || []).map((r, i) => ({ ...r, i: i + 1 }));
+    const marks = []; let prev = null;
+    for (const r of P) { if (r.stage !== prev) marks.push({ x: r.i, label: r.stage === "heldout" ? "test" : r.stage.replace("gen", "G").replace(/G(\d+)/, (_, n) => "Gen " + (+n + 1)) }); prev = r.stage; }
+    lineChart($("covChart"), P, { x: "i", series: [{ key: "coverage", label: "Coverage", c: "--s-return" }], y0: 0, y1: 1, h: 170, marks: marks.filter((m) => !m.label.startsWith("rescore")),
+      empty: "No search batches yet.", aria: "Archive coverage", yFmt: (v, e) => e ? pct(v, 1) : Math.round(v * 100) + "%", xFmt: (v) => "batch " + Math.round(v),
+      tipTitle: (r) => `${r.stage} · ${r.evals} scenarios tried`, tipExtra: (r) => `<div class="r"><span>Added</span><span>${r.added}</span></div><div class="r"><span>Realistic</span><span>${pct(r.feasible)}</span></div>` });
+  }
+
+  /* ---------------------------------------------------------------- host, checkpoints */
+  function meter(label, val, frac, hot) { return `<div class="meter${hot ? " hot" : ""}"><div class="row"><span>${label}</span><b>${val}</b></div><div class="bar"><i style="width:${frac == null ? 0 : Math.min(100, 100 * frac).toFixed(1)}%"></i></div></div>`; }
+  function renderHost(s) {
+    const h = s.host; let m = "";
+    $("hostName").textContent = h.hostname || "";
+    m += meter(`CPU · ${h.cores} cores`, h.cpu_pct == null ? "–" : h.cpu_pct.toFixed(0) + "%", h.cpu_pct / 100);
+    m += meter("RAM", `${gb(h.mem_used)} / ${gb(h.mem_total)}`, h.mem_used / h.mem_total, h.mem_used / h.mem_total > 0.92);
+    for (const g of h.gpus || []) m += meter(`GPU · ${esc(g.name)}`, `${g.util ?? "–"}% · ${g.mem_used != null ? (g.mem_used / 1024).toFixed(1) : "–"}/${g.mem_total != null ? (g.mem_total / 1024).toFixed(0) : "–"} GB${g.temp ? ` · ${g.temp}°C` : ""}`, g.util / 100);
+    if (!(h.gpus || []).length) m += meter("GPU", "nvidia-smi not found", 0);
+    const used = h.disk_total - h.disk_free;
+    m += meter("Disk (runs folder)", `${gb(h.disk_free)} free`, used / h.disk_total, h.disk_free < 3 * 2 ** 30);
+    $("meters").innerHTML = m;
+    $("hostSub").textContent = `${h.node_workers} simulation process${h.node_workers === 1 ? "" : "es"} running` + (h.load ? ` · load ${h.load[0].toFixed(1)}` : "") + (h.disk_free < 3 * 2 ** 30 ? " · disk almost full" : "");
+    const ck = (s.checkpoints || []).slice().reverse().slice(0, 6);
+    $("ckTbl").innerHTML = ck.length ? `<tr><th>File</th><th>Saved</th></tr>` + ck.map((c) => row([`<span style="font-family:var(--mono);font-size:12px">${esc(c.path)}</span>`, ago(c.mtime, s.now)])).join("") : `<tr><td class="empty" style="height:70px">No checkpoints yet.</td></tr>`;
+  }
+
+  /* ---------------------------------------------------------------- polling */
+  function newest(s) {
+    const ts = [s.distill.status && s.distill.status.t, s.coevolve.status && s.coevolve.status.t, s.log_mtime, ...(s.ppo || []).map((r) => r.updated), ...(s.checkpoints || []).map((c) => c.mtime)].filter(Boolean);
+    return ts.length ? Math.max(...ts) : null;
+  }
+  async function poll() {
+    try {
+      const r = await fetch("/api/status", { cache: "no-store" }); S = await r.json();
+      renderSteps(S); renderKpis(S); renderPPO(S); renderTables(S); renderHeat(S); renderCov(S); renderHost(S);
+      const t = newest(S), P = S.pipeline || {}, quiet = t && S.now - t > 300;
+      $("dot").className = "dot " + (P.state === "failed" ? "off" : P.state === "done" ? "" : quiet ? "" : "on");
+      $("liveTxt").textContent = P.state === "done" ? "Pipeline finished" : P.state === "failed" ? "Pipeline stopped" : t ? "Last activity " + ago(t, S.now) : "Waiting for data";
+      $("foot").textContent = `Folder: ${S.runs} · refreshes every 4 seconds`;
+    } catch (e) { $("dot").className = "dot off"; $("liveTxt").textContent = "Lost connection to the server"; }
+    try {
+      const L = await (await fetch("/api/log?n=250", { cache: "no-store" })).json(), el = $("log");
+      el.textContent = L.length ? L.join("\n") : "No pipeline.log yet. It is written when training runs through pipeline.py.";
+      if ($("follow").checked) el.scrollTop = el.scrollHeight;
+      $("logSub").textContent = L.length ? `last ${L.length} lines of pipeline.log` : "";
+    } catch (e) {}
+  }
+  let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => S && (renderPPO(S), renderCov(S)), 150); });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => S && poll());
+  poll(); setInterval(poll, 4000);
+})();
+</script>
+</body>
+</html>
