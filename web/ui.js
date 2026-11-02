@@ -8,6 +8,12 @@
   let citySeed = 7, preset = "region", map, layers, sim, env, city = null, cityOv = null, centre = null, loadingMap = false;
   let qMap = null; try { qMap = new URLSearchParams(location.search).get("map"); if (qMap && PRESET_NAMES.includes(qMap)) preset = qMap; } catch (e) {}
   const AV = typeof AV_DATA !== "undefined" ? AV_DATA : null;
+  // learned motorbikes and cars (rl/npc_train.py), when the page was built with them
+  const NPCB = typeof NPC_DATA !== "undefined" ? new NpcBrain(NPC_DATA) : null;
+  let learnedTraffic = false;
+  if (NPCB) { $("trafficBox").hidden = false; $("trafficSep").hidden = false; }
+  const setTraffic = (on) => { learnedTraffic = on && !!NPCB; setNpcBrain(learnedTraffic ? NPCB : null); if (sim) sim.brain = learnedTraffic ? NPCB : null; $("trRules").setAttribute("aria-pressed", String(!learnedTraffic)); $("trLearned").setAttribute("aria-pressed", String(learnedTraffic)); };
+  $("trRules").onclick = () => setTraffic(false); $("trLearned").onclick = () => setTraffic(true);
 
   /* ---------- drivers for the self-driving car */
   const planner = new LookaheadPlanner({ vTs: [0, 4, 8, 12], lats: [-0.6, 0, 0.6], M: 2, H: 10 });

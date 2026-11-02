@@ -3,6 +3,9 @@ const path = require("path");
 const W = path.join(__dirname, "..", "web");
 Object.assign(global, require(path.join(W, "world.js")));
 Object.assign(global, require(path.join(W, "osm.js")));
+Object.assign(global, require(path.join(W, "npc.js")));
+if (process.env.LOTUS_NPC) { try { setNpcBrain(new NpcBrain(JSON.parse(require("fs").readFileSync(process.env.LOTUS_NPC, "utf8")))); } catch (e) { process.stderr.write("LOTUS_NPC: " + e.message + "\n"); } }   // learned traffic (rl/npc_train.py)
+
 Object.assign(global, require(path.join(W, "sim.js")));
 Object.assign(global, require(path.join(W, "env.js")));
 Object.assign(global, require(path.join(W, "planner.js")));

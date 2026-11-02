@@ -272,6 +272,37 @@ Or all at once: `bash rl/run_phase2.sh`.
 
 </details>
 
+### Learned road users and a learned world model (optional)
+
+Two optional stages replace hand-written parts with learned ones. Both run inside the same pipeline and are judged on the same evaluation suite.
+
+**Learned road users** (`rl/npc_train.py`, `web/npc.js`) drive the motorbikes and cars with a neural network instead of the rules.
+- The network sees one vehicle's speed, its personality (bold, patient, law-abiding, preferred speed), where it is across the road, the stop line and signal ahead, the turn it is making, the bend ahead and how long it has waited, plus the 10 nearest road users. Every 0.3 s it outputs a target speed and a sideways target.
+- It first imitates the rules (behaviour cloning). Then every vehicle in the city is trained together with shared weights (multi-agent PPO): it is rewarded for keeping up with its own preferred speed and penalised for collisions, near misses and, in proportion to how law-abiding it is, for running red lights.
+- A pull toward the rule-based decision in the same state keeps the behaviour human-like. It fades but never reaches zero.
+- Physics still applies: acceleration limits, the speed a bend allows, emergency braking for what is right in front, and no body ever moves into another.
+- Personalities stay inputs, so the phase 3 scenario genomes still shape the population.
+- A realism report compares traffic statistics with the rules and with the network.
+- Pedestrians, buffalo and trains stay rule-based.
+
+```bash
+python pipeline.py --stages npc,2,3,4      # with traffic: learned in configs/default.yaml, every later stage drives among them
+python rl/npc_train.py --iters 40 --workers 16   # or on its own; result in rl/runs/npc/npc.json
+```
+
+**Learned world model** (`rl/tdmpc2.py`, TD-MPC2 by Hansen, Su & Wang, ICLR 2024) drives by planning in a model it learned itself.
+- The model has five parts: an encoder (DeepSets over the 16 nearest road users, the same observation as the other drivers), latent dynamics ("what happens 0.2 s after this action"), a reward model, an ensemble of 5 Q functions and a policy prior.
+- Each decision it imagines 512 futures over 3 decisions in the latent space, refines them 6 times (MPPI), adds a learned value for what comes after, and takes the best first action.
+- The replay buffer can start with drives by the look-ahead teacher (`--demos`), which shortens learning a lot. Unlike the teacher, it never copies the simulator to look ahead.
+- In the browser it appears as the **TD-MPC2** driver, driving with its policy prior alone, because the planner needs the dynamics, reward and value networks, which stay in Python.
+
+```bash
+python pipeline.py --stages wm             # trains it and scores it on the fixed suite, next to the PPO car
+python rl/tdmpc2.py --eval rl/runs/tdmpc2/final.pt --eval-n 48   # evaluate a checkpoint with planning
+```
+
+A GPU is recommended for both: TD-MPC2 updates and plans with batched networks, and the multi-agent PPO trains on hundreds of thousands of decisions per iteration. With `traffic: learned` the simulation itself runs about 3 times slower (every motorbike and car evaluates a small network every 0.3 s), so phases 2 and 3 take longer too.
+
 ### Phase 3 · Co-evolution (artificial life)
 
 ```bash
@@ -390,6 +421,7 @@ Autopilot-RL/
 ├── web/                     # Phase 1 + shared code
 │   ├── world.js             #   map generator: road network, terrain, buildings, occlusion, eight map presets
 │   ├── osm.js               #   Ho Chi Minh City: tiles, windows of the real city, place search
+│   ├── npc.js               #   learned road users: observation and network (Node and browser)
 │   ├── hcm/                 #   the city as tiles (built by data/build_hcm.js)
 │   ├── sim.js               #   traffic: signals, barriers, motorbikes, pedestrians, buffalo, trains, scenario genomes
 │   ├── env.js               #   RL environment; SetPolicy/MLPPolicy run networks in the browser and in Node
@@ -404,6 +436,8 @@ Autopilot-RL/
 │   ├── evolve_eval.js       #   scenario genome evaluation
 │   ├── coevolve.py          #   MAP-Elites + realism filter + retraining
 │   ├── train.py, sb3_train.py, worker.js   # PPO/SAC from scratch (for comparison)
+│   ├── tdmpc2.py, gen_demos.js            # learned world model (TD-MPC2) that drives by planning
+│   ├── npc_train.py, gen_npc.js           # learned motorbikes and cars (imitation + multi-agent PPO)
 │   └── run_phase2.sh
 ├── carla/                   # Phase 4
 │   ├── export_xodr.js, check_xodr.py       # map → OpenDRIVE, and a checker
@@ -462,7 +496,8 @@ DINOv3 is gated on Hugging Face. Accept the licence on the model page, then run 
 - [x] Real map of Ho Chi Minh City from OpenStreetMap (streets, alleys, one-way streets, turn bans, signals, flyovers, rail, metro)
 - [ ] Hanoi and other cities with the same pipeline
 - [ ] (Optional) Calibrate thresholds from real-video trajectories
-- [ ] Comparison with learned world models (DreamerV3, TD-MPC2)
+- [x] Learned world model (TD-MPC2) and learned road users (imitation + multi-agent RL)
+- [ ] Comparison with DreamerV3
 - [ ] Pedestrians crossing
 
 ## 📚 Citation and licence

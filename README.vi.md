@@ -270,6 +270,37 @@ Hoặc gộp bằng một lệnh: `bash rl/run_phase2.sh`.
 
 </details>
 
+### Xe cộ học được và mô hình thế giới học được (tuỳ chọn)
+
+Hai giai đoạn tuỳ chọn thay những phần viết tay bằng phần học được. Cả hai chạy trong cùng đường ống và được chấm trên cùng bộ đề.
+
+**Xe cộ học được** (`rl/npc_train.py`, `web/npc.js`): xe máy và ô tô do mạng nơ-ron lái thay cho bộ luật.
+- Mạng nhìn thấy, cho từng xe: tốc độ, tính cách (liều lĩnh, kiên nhẫn, tuân thủ luật, tốc độ ưa thích), vị trí ngang trên đường, vạch dừng và đèn phía trước, hướng rẽ, khúc cua phía trước, đã chờ bao lâu, cùng 10 đối tượng gần nhất. Cứ 0,3 giây mạng chọn một tốc độ mục tiêu và một vị trí ngang mục tiêu.
+- Đầu tiên mạng bắt chước bộ luật. Sau đó mọi xe trong thành phố cùng học chung một bộ trọng số (PPO nhiều tác tử): được thưởng khi theo kịp tốc độ ưa thích của chính mình, bị phạt khi va chạm, suýt va chạm, và khi vượt đèn đỏ (phạt nặng hơn với người vốn tuân thủ luật).
+- Một lực kéo về quyết định của bộ luật trong cùng tình huống giữ cho hành vi giống người. Lực này giảm dần nhưng không bao giờ về 0.
+- Vật lý vẫn được giữ: giới hạn gia tốc, tốc độ tối đa qua cua, phanh khẩn cấp với vật ngay phía trước, và không thân xe nào lấn vào thân xe khác.
+- Tính cách vẫn là đầu vào, nên bộ gen kịch bản của giai đoạn 3 vẫn điều khiển được đám đông.
+- Một báo cáo hiện thực so sánh thống kê giao thông giữa bộ luật và mạng.
+- Người đi bộ, trâu và tàu vẫn chạy theo luật.
+
+```bash
+python pipeline.py --stages npc,2,3,4      # đặt traffic: learned trong configs/default.yaml để các giai đoạn sau chạy giữa xe học được
+python rl/npc_train.py --iters 40 --workers 16   # hoặc chạy riêng; kết quả ở rl/runs/npc/npc.json
+```
+
+**Mô hình thế giới học được** (`rl/tdmpc2.py`, TD-MPC2 của Hansen, Su & Wang, ICLR 2024): xe lái bằng cách lập kế hoạch trong mô hình do chính nó học.
+- Mô hình gồm năm phần: bộ mã hoá (DeepSets trên 16 đối tượng gần nhất, cùng quan sát với các người lái khác), động lực học trong không gian ẩn ("0,2 giây sau hành động này thì thế nào"), mô hình phần thưởng, 5 hàm Q và một chính sách gợi ý.
+- Mỗi quyết định, nó tưởng tượng 512 tương lai dài 3 bước trong không gian ẩn, tinh chỉnh 6 lần (MPPI), cộng giá trị học được cho phần sau đó, rồi chọn hành động đầu tốt nhất.
+- Bộ nhớ có thể khởi đầu bằng các lượt lái của người thầy (`--demos`), giúp học nhanh hơn nhiều. Khác với người thầy, nó không bao giờ sao chép mô phỏng để nhìn trước.
+- Trên trình duyệt nó là người lái **TD-MPC2** và chỉ dùng chính sách gợi ý, vì bộ lập kế hoạch cần các mạng động lực học, phần thưởng và giá trị, vốn nằm ở Python.
+
+```bash
+python pipeline.py --stages wm             # huấn luyện và chấm trên bộ đề cố định, đặt cạnh xe PPO
+python rl/tdmpc2.py --eval rl/runs/tdmpc2/final.pt --eval-n 48   # đánh giá một checkpoint có lập kế hoạch
+```
+
+Nên có GPU cho cả hai: TD-MPC2 cập nhật và lập kế hoạch bằng mạng chạy theo lô, còn PPO nhiều tác tử học trên hàng trăm nghìn quyết định mỗi vòng. Với `traffic: learned`, bản thân mô phỏng chạy chậm hơn khoảng 3 lần (mỗi xe máy và ô tô chạy một mạng nhỏ mỗi 0,3 giây), nên giai đoạn 2 và 3 cũng lâu hơn.
+
 ### Giai đoạn 3 · Đồng tiến hoá (Artificial Life)
 
 ```bash
@@ -388,6 +419,7 @@ Autopilot-RL/
 ├── web/                     # Giai đoạn 1 + phần dùng chung
 │   ├── world.js             #   bộ sinh bản đồ: mạng đường, địa hình, nhà cửa, che khuất, tám loại bản đồ
 │   ├── osm.js               #   TP.HCM: các ô bản đồ, cắt vùng của thành phố thật, tìm địa điểm
+│   ├── npc.js               #   xe cộ học được: quan sát và mạng nơ-ron (Node và trình duyệt)
 │   ├── hcm/                 #   thành phố dạng ô (dựng bởi data/build_hcm.js)
 │   ├── sim.js               #   giao thông: đèn, rào chắn, xe máy, người đi bộ, trâu, tàu, bộ gen kịch bản
 │   ├── env.js               #   môi trường RL; SetPolicy/MLPPolicy chạy mạng trên trình duyệt và Node
@@ -402,6 +434,8 @@ Autopilot-RL/
 │   ├── evolve_eval.js       #   chấm bộ gen kịch bản
 │   ├── coevolve.py          #   MAP-Elites + lọc hiện thực + huấn luyện lại
 │   ├── train.py, sb3_train.py, worker.js   # PPO/SAC học từ đầu (để so sánh)
+│   ├── tdmpc2.py, gen_demos.js            # mô hình thế giới học được (TD-MPC2), lái bằng lập kế hoạch
+│   ├── npc_train.py, gen_npc.js           # xe máy và ô tô học được (bắt chước + PPO nhiều tác tử)
 │   └── run_phase2.sh
 ├── carla/                   # Giai đoạn 4
 │   ├── export_xodr.js, check_xodr.py       # bản đồ → OpenDRIVE, và kiểm tra
@@ -455,7 +489,8 @@ DINOv3 có kiểm soát truy cập trên Hugging Face. Hãy chấp nhận giấy
 - [x] Bản đồ thật TP.HCM từ OpenStreetMap (đường, hẻm, một chiều, cấm rẽ, đèn, cầu vượt, đường sắt, metro)
 - [ ] Hà Nội và các thành phố khác với cùng quy trình
 - [ ] (Tuỳ chọn) Hiệu chỉnh ngưỡng bằng quỹ đạo từ video thật
-- [ ] So sánh với mô hình thế giới học được (DreamerV3, TD-MPC2)
+- [x] Mô hình thế giới học được (TD-MPC2) và xe cộ học được (bắt chước + RL nhiều tác tử)
+- [ ] So sánh với DreamerV3
 - [ ] Người đi bộ qua đường
 
 ## 📚 Trích dẫn và giấy phép

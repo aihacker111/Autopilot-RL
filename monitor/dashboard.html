@@ -304,9 +304,11 @@ pre.log { margin: 0; max-height: 360px; overflow: auto; background: var(--surfac
 
   /* ---------------------------------------------------------------- pipeline stages */
   const STAGES = [
+    { id: "npc.train", k: "N", t: "Learned road users", opt: true },
     { id: "2.baseline", k: "2 · A", t: "Baselines", files: ["eval.planner"] },
     { id: "2.distill", k: "2 · B", t: "Teacher → student" },
     { id: "2.finetune", k: "2 · C", t: "PPO fine-tuning" },
+    { id: "wm.tdmpc2", k: "W", t: "World model (TD-MPC2)", opt: true },
     { id: "3.coevolve", k: "3", t: "Co-evolution" },
     { id: "4.carla", k: "4", t: "Camera in CARLA" },
   ];
@@ -340,15 +342,24 @@ pre.log { margin: 0; max-height: 360px; overflow: auto; background: var(--surfac
           if (!h) state = C.step === "done" ? "done" : fresh(C.t) ? "active" : "pending"; }
         else detail = "Population and car evolve together";
       }
+      if (st.id === "npc.train") { const N = (s.npc || {}).status, R = (s.npc || {}).report;
+        if (R) { state = h ? state : "done"; detail = `Done · learned ${R.learned.meanSpeedKmh.toFixed(0)} km/h vs rules ${R.rules.meanSpeedKmh.toFixed(0)} km/h`; }
+        else if (N) { prog = N.stage === "ppo" ? (N.iter + 1) / (N.iters || 1) : 0.05; detail = N.stage === "bc" ? "Imitating the rules" : `RL iteration ${N.iter + 1}/${N.iters}`; if (!h) state = fresh(N.t) ? "active" : "pending"; }
+        else detail = "Motorbikes and cars learn to drive"; }
+      if (st.id === "wm.tdmpc2") { const Wm = (s.wm || {}).status, R = (s.wm || {}).result;
+        if (R) { if (!h) state = "done"; detail = `Done · ${pct(R.summary.ok)} completed · ${pct(R.summary.crash)} crash`; }
+        else if (Wm) { prog = Wm.steps && Wm.total ? Wm.steps / Wm.total : null; detail = Wm.phase === "demos" ? "The teacher drives (demonstrations)" : `${kfmt(Wm.steps || 0)} steps · ${pct(Wm.ok || 0)} completed`; if (!h) state = fresh(Wm.t) ? "active" : "pending"; }
+        else detail = "Plans in a learned model of the world"; }
       if (st.id === "4.carla") { const L = s.phase4.log || []; detail = s.phase4.result ? "Done" : L.length ? `Round ${L.length}` : "Student learns from cameras"; if (!h && s.phase4.result) state = "done"; }
-      if (P.stages && !P.stages.includes(st.id[0]) && state === "pending") state = "skip";
+      if (P.stages && !P.stages.includes(st.id.split(".")[0]) && state === "pending") state = "skip";
+      if (st.opt && state === "skip") continue;   // optional stages are listed only when they run
       out[st.id] = { state, detail, prog: state === "done" ? 1 : prog };
     }
     return out;
   }
   function renderSteps(s) {
     const info = stageInfo(s);
-    $("steps").innerHTML = STAGES.map((st) => {
+    $("steps").innerHTML = STAGES.filter((st) => info[st.id]).map((st) => {
       const i = info[st.id], b = { active: '<span class="badge run">running</span>', done: '<span class="badge ok">done</span>', failed: '<span class="badge bad">stopped</span>', skip: '<span class="badge">skipped</span>' }[i.state] || "";
       return `<div class="step ${i.state}"><div class="k">${st.k} ${b}</div><div class="t">${st.t}</div><div class="d">${esc(i.detail)}</div><div class="bar"><i style="width:${i.prog == null ? 0 : (100 * i.prog).toFixed(1)}%"></i></div></div>`;
     }).join("");

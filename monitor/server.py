@@ -136,6 +136,8 @@ def status(runs, host):
                      "progress": (load(os.path.join(co, "progress.json"), {}) or {}).get("rows", []),
                      "archive": load(os.path.join(co, "archive_live.json")), "result": load(os.path.join(co, "result.json"))},
         "phase4": {"log": load(os.path.join(runs, "phase4", "phase4_log.json"), []), "result": load(os.path.join(runs, "phase4", "result.json"))},
+        "npc": {"status": load(os.path.join(runs, "npc", "status.json")), "report": load(os.path.join(runs, "npc", "report.json"))},
+        "wm": {"status": load(os.path.join(runs, "tdmpc2", "status.json")), "result": load(os.path.join(runs, "tdmpc2", "eval_final.json"))},
         "checkpoints": checkpoints(runs),
         "log_mtime": os.path.getmtime(os.path.join(runs, "pipeline.log")) if os.path.exists(os.path.join(runs, "pipeline.log")) else None,
     }
@@ -155,14 +157,14 @@ class Sim:
     def __init__(self, runs): self.runs, self.sig, self.html, self.lock = runs, None, None, threading.Lock()
 
     def dirs(self):
-        return ([os.path.join(self.runs, "teacher_v2"), os.path.join(self.runs, "finetune_v2")] +
+        return ([os.path.join(self.runs, "teacher_v2"), os.path.join(self.runs, "finetune_v2"), os.path.join(self.runs, "tdmpc2")] +
                 sorted(glob.glob(os.path.join(self.runs, "coevolve", "ft_g*")), key=lambda d: num(d, r"ft_g(\d+)")))
 
     def signature(self):
         fs = []
         for d in self.dirs():
             for f in glob.glob(os.path.join(d, "*.json")):
-                if re.match(r"(student_r\d+|step_\d+|final|latest)\.json$", os.path.basename(f)): fs.append((f, os.path.getmtime(f)))
+                if re.match(r"(student_r\d+|step_\d+|final|latest|policy)\.json$", os.path.basename(f)): fs.append((f, os.path.getmtime(f)))
         return str(hash(tuple(sorted(fs))))
 
     def page(self):
@@ -195,6 +197,10 @@ def make_handler(runs, host, sim):
                 elif u.path == "/api/log": self.send(json.dumps(tail(os.path.join(runs, "pipeline.log"), min(2000, int(q.get("n", ["200"])[0])))))
                 elif u.path == "/api/ckpt": self.send(json.dumps({"sig": sim.signature()}))
                 elif u.path == "/sim": self.send(sim.page(), "text/html; charset=utf-8")
+                elif u.path.startswith("/hcm/"):   # the Ho Chi Minh City map data (web/hcm), fetched by the /sim page
+                    base = os.path.realpath(os.path.join(ROOT, "web", "hcm")); f = os.path.realpath(os.path.join(base, u.path[5:]))
+                    if f.startswith(base + os.sep) and os.path.isfile(f): self.send(open(f, "rb").read())
+                    else: self.send(json.dumps({"error": "no map data: build it with data/build_hcm.js"}), code=404)
                 else: self.send(json.dumps({"error": "not found"}), code=404)
             except (BrokenPipeError, ConnectionResetError): pass
             except Exception as e:   # never let a bad file take the monitor down

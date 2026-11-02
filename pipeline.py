@@ -3,6 +3,8 @@ Autopilot-RL: run the whole pipeline (phases 2 -> 3 -> 4) with gates between sta
 
   python pipeline.py                                  # everything, configs/default.yaml
   python pipeline.py --stages 2,3                     # stop before CARLA
+  python pipeline.py --stages npc,2,3,4               # learned road users first (set traffic: learned in the config)
+  python pipeline.py --stages wm                      # the TD-MPC2 world-model driver, compared on the same suite
   python pipeline.py --stages 4 --teacher rl/runs/coevolve/ft_g3/final.json
   python pipeline.py --smoke                          # tiny settings, no CARLA (dry run): checks the installation in minutes
   python pipeline.py --port 9000                      # training monitor on another port (--port 0 turns it off)
@@ -115,13 +117,39 @@ def phase4(c, dev, teacher, smoke):
     return json.load(open(os.path.join(RUNS, "phase4", "result.json")))
 
 
+def phase_npc(c, W, dev, redo):
+    """learned road users: imitation of the rules, then multi-agent PPO (rl/npc_train.py)"""
+    out = os.path.join(RUNS, "npc"); rep = os.path.join(out, "report.json")
+    stage("npc.train")
+    if not (os.path.exists(rep) and not redo):
+        sh([PY, os.path.join(RL, "npc_train.py"), "--bc-steps", c["bc_steps"], "--iters", c["iters"], "--ppo-steps", c["ppo_steps"], "--stats-steps", c["stats_steps"], "--workers", W, "--device", dev, "--out", out])
+    stage("npc.train", "done")
+    return json.load(open(rep))
+
+
+def phase_wm(c, W, dev, redo):
+    """learned world model: TD-MPC2 drives by planning in its own latent model of the world (rl/tdmpc2.py)"""
+    out = os.path.join(RUNS, "tdmpc2"); res = os.path.join(out, "eval_final.json")
+    stage("wm.tdmpc2")
+    if not (os.path.exists(res) and not redo):
+        sh([PY, os.path.join(RL, "tdmpc2.py"), "--steps", c["steps"], "--demos", c["demos"], "--workers", W, "--envs", c["envs"], "--samples", c["samples"], "--eval-n", c["eval_n"], "--eval-every", c["eval_every"], "--device", dev, "--out", out])
+    stage("wm.tdmpc2", "done")
+    return json.load(open(res))["summary"]
+
+
 def run(stages, redo, cfg, W, dev, a, t0):
     summary = {}
+    if "npc" in stages: summary["npc"] = phase_npc(cfg["npc"], W, dev, "npc" in redo)
+    npc = os.path.join(RUNS, "npc", "npc.json")
+    if cfg.get("traffic", "rules") == "learned":   # every later stage (and the CARLA bridge) drives among the learned road users
+        if os.path.exists(npc): os.environ["LOTUS_NPC"] = npc; print("traffic: learned road users from", npc, flush=True)
+        else: print("traffic: learned was asked for but", npc, "does not exist (run the npc stage first); using the rules", flush=True)
     if "2" in stages: summary["phase2"] = phase2(cfg["phase2"], W, dev, a.force, "2" in redo)
     policy, init = os.path.join(RUNS, "finetune_v2", "final.json"), os.path.join(RUNS, "finetune_v2", "final.pt")
     if "3" in stages:
         r = phase3(cfg["phase3"], W, dev, a.force, "3" in redo, policy, init); summary["phase3"] = r; policy = r["final_policy"]
     elif os.path.exists(os.path.join(RUNS, "coevolve", "result.json")): policy = json.load(open(os.path.join(RUNS, "coevolve", "result.json")))["final_policy"]
+    if "wm" in stages: summary["world_model"] = phase_wm(cfg["world_model"], W, dev, "wm" in redo)
     if "4" in stages: summary["phase4"] = phase4(cfg["phase4"], dev, a.teacher or policy, a.smoke)
     summary["minutes"] = round((time.time() - t0) / 60, 1)
     os.makedirs(RUNS, exist_ok=True); json.dump(summary, open(os.path.join(RUNS, "pipeline_summary.json"), "w"), indent=1)
@@ -138,13 +166,29 @@ if __name__ == "__main__":
     p.add_argument("--port", type=int, default=8765, help="training monitor port (0 = no monitor)")
     p.add_argument("--bind", default="0.0.0.0", help="monitor address; 127.0.0.1 allows only an SSH tunnel")
     p.add_argument("--exit-when-done", action="store_true", help="stop the monitor when the pipeline ends")
+    p.add_argument("--generated-maps", action="store_true", help="allow training without the Ho Chi Minh City data (web/hcm): generated maps only")
     a = p.parse_args()
     cfg = yaml.safe_load(open(a.config))
+    # the city data is not in git (web/hcm is ~110 MB): without it every stage silently falls back to generated maps
+    hcm = os.path.join(ROOT, "web", "hcm")
+    try:
+        idx = json.load(open(os.path.join(hcm, "index.json"), encoding="utf-8"))
+        miss = [k for k in idx["tiles"] if not os.path.isfile(os.path.join(hcm, "t", k + ".json"))]
+        city_err = f"web/hcm is incomplete: {len(miss)} of {len(idx['tiles'])} tiles are missing (e.g. t/{miss[0]}.json)" if miss else None
+    except FileNotFoundError: city_err = "web/hcm/index.json not found: the Ho Chi Minh City map is missing"
+    except Exception as e: city_err = f"web/hcm could not be read: {e!r}"
+    if city_err and not (a.generated_maps or a.smoke):
+        sys.exit(f"{city_err}\nThe map data is not in git. Copy it from the machine that has it, e.g.\n"
+                 f"  rsync -az --info=progress2 web/hcm/ user@server:{ROOT}/web/hcm/\n"
+                 f"or rebuild it (data/extract_hcm.py, then node data/build_hcm.js). To train on generated maps instead, add --generated-maps.")
+    if city_err: print(f"warning: {city_err}; using generated maps", flush=True)
     if a.smoke:
         RUNS = os.path.join(ROOT, "rl", "runs_smoke")
         cfg["phase2"].update(eval_n=6, rounds=1, decisions=300, epochs=5, ft_steps=2048); cfg["phase2"]["gate"].update(min_ok=0, max_crash=1)
         cfg["phase3"].update(gens=1, budget=8, batch=4, episodes=1, ft_steps=1024, heldout=2); cfg["phase3"]["gate"]["max_default_drop"] = 1
         cfg["phase4"].update(encoder="tiny", rounds=1, episodes=2, eval_episodes=1, epochs=3, preset="city")
+        cfg.setdefault("npc", {}).update(bc_steps=1500, iters=2, ppo_steps=900, stats_steps=900)
+        cfg.setdefault("world_model", {}).update(steps=600, demos=200, envs=2, samples=64, eval_n=2, eval_every=0)
         a.force = True
     W = (os.cpu_count() or 4) - 2 if cfg["workers"] == "auto" else int(cfg["workers"]); W = max(1, min(W, 64))
     try: import torch; dev = ("cuda" if torch.cuda.is_available() else "cpu") if cfg["device"] == "auto" else cfg["device"]

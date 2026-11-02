@@ -258,6 +258,8 @@ select.mini-btn { padding: 0 6px; background: transparent; color: var(--ink); }
   </div>
   <div class="sep"></div>
   <label class="dens" for="density"><span class="lbl">Traffic <b id="densName">Normal</b></span><input type="range" id="density" min="0.2" max="1.4" step="0.05" value="0.9"></label>
+  <div class="sep" id="trafficSep" hidden></div>
+  <div class="dens" id="trafficBox" hidden><span class="lbl">Road users</span><div class="seg" role="group" aria-label="Who drives the motorbikes and cars"><button id="trRules" aria-pressed="true" title="Hand-written rules with random personalities">Rules</button><button id="trLearned" aria-pressed="false" title="Neural network trained by imitation, then multi-agent RL">Learned</button></div></div>
   <div class="sep"></div>
   <button class="btn" id="fit" title="Show the whole district">Overview</button>
 </div>

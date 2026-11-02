@@ -258,6 +258,8 @@ select.mini-btn { padding: 0 6px; background: transparent; color: var(--ink); }
   </div>
   <div class="sep"></div>
   <label class="dens" for="density"><span class="lbl">Traffic <b id="densName">Normal</b></span><input type="range" id="density" min="0.2" max="1.4" step="0.05" value="0.9"></label>
+  <div class="sep" id="trafficSep" hidden></div>
+  <div class="dens" id="trafficBox" hidden><span class="lbl">Road users</span><div class="seg" role="group" aria-label="Who drives the motorbikes and cars"><button id="trRules" aria-pressed="true" title="Hand-written rules with random personalities">Rules</button><button id="trLearned" aria-pressed="false" title="Neural network trained by imitation, then multi-agent RL">Learned</button></div></div>
   <div class="sep"></div>
   <button class="btn" id="fit" title="Show the whole district">Overview</button>
 </div>
@@ -1267,6 +1269,87 @@ function getHcmCity() {
 if (typeof module !== "undefined") module.exports = { HcmCity, hcmMap, hcmMapCached, setHcmCity, getHcmCity, HCM_BENCH, benchCentre };
 
 /* ======================================================================
+   LOTUS: learned road users. Motorbikes and cars can be driven by a
+   neural network instead of the hand-written rules (rl/npc_train.py):
+   first it imitates the rules, then it is fine-tuned by multi-agent RL
+   (every rider learns to get where it is going quickly without crashing),
+   with a pull toward the rules so it stays human-like.
+
+   The network sees, for one vehicle: its speed, its personality (bold,
+   patient, law-abiding, preferred speed: the scenario genomes of phase 3
+   still shape the population), where it is across the road, the stop line
+   and signal ahead, the turn it is making, the bend ahead, how long it has
+   waited; and the 10 nearest road users around it. It outputs a target
+   speed and a sideways target, every 0.3 s. The simulation still enforces
+   physics: acceleration limits, the speed a bend allows, and that no body
+   ever moves into another.
+   ====================================================================== */
+"use strict";
+const NPC = { EGO: 20, K: 10, NB: 12, EVERY: 0.3, LAT: 1.5, TYPES: { moto: 1, car: 1, taxi: 1 } };
+NPC.OBS = NPC.EGO + NPC.K * NPC.NB;
+
+/* the observation of vehicle v; `list` is sim.scan(v, ...), [lo, hi] its sideways bounds, i0 its path index */
+function npcObs(sim, v, list, lo, hi, i0, stopS) {
+  const o = new Float32Array(NPC.OBS), p = v.path, two = isTwo(v.type);
+  let k = 0;
+  o[k++] = v.v / 15; o[k++] = v.vDes / 15; o[k++] = v.aggr; o[k++] = v.patience; o[k++] = v.comply; o[k++] = (v.speedPref - 1) * 2;
+  o[k++] = two ? 1 : 0; o[k++] = (v.d - lo) / Math.max(0.5, hi - lo) * 2 - 1; o[k++] = (hi - lo) / 6;
+  const toStop = p.sStop - v.s; o[k++] = Math.max(-1, Math.min(1, toStop / 40));
+  const L = p.signal || p.rail ? sim.light(p.junc, p.from) : null;
+  o[k++] = L && L.c === "G" ? 1 : 0; o[k++] = L && L.c === "Y" ? 1 : 0; o[k++] = L && L.c === "R" ? 1 : 0; o[k++] = L ? Math.min(1, L.left / 30) : 0;
+  o[k++] = p.kind === "left" ? 1 : 0; o[k++] = p.kind === "right" ? 1 : 0;
+  o[k++] = p.priority === 0 && toStop > -3 && toStop < 40 ? 1 : 0;   // a side road or roundabout entry: give way
+  o[k++] = Math.min(1, p.VMAX[Math.min(p.n - 1, i0 + 20)] / 15);   // the bend 10 m ahead
+  o[k++] = Math.min(1, (v.wait || 0) / 20); o[k++] = stopS < Infinity ? Math.max(-1, Math.min(1, (stopS - v.s) / 30)) : 1;
+  // neighbours: the 10 nearest, in this vehicle's frame
+  const nb = list.filter((e) => Math.abs(e.fx0) < 25 && Math.abs(e.fy0) < 12).sort((a, b) => a.fx0 * a.fx0 + a.fy0 * a.fy0 - b.fx0 * b.fx0 - b.fy0 * b.fy0);
+  for (let j = 0; j < NPC.K; j++) {
+    const off = NPC.EGO + j * NPC.NB; if (j >= nb.length) continue;
+    const e = nb[j], u = e.u, rvx = (u.vx || 0) - v.vx, rvy = (u.vy || 0) - v.vy;
+    o[off] = e.fx0 / 25; o[off + 1] = e.fy0 / 10;
+    o[off + 2] = (rvx * v.tx + rvy * v.ty) / 10; o[off + 3] = (rvx * v.nx + rvy * v.ny) / 10;
+    o[off + 4] = (u.ch || 1) * v.ch + (u.sh || 0) * v.sh; o[off + 5] = (u.sh || 0) * v.ch - (u.ch || 1) * v.sh;
+    o[off + 6] = Math.min(3, (u.l2 || 0.5) / 2.5); o[off + 7] = Math.min(2, (u.w2 || 0.3) / 1);
+    o[off + 8] = u.ego ? 1 : 0; o[off + 9] = u.agent && !u.static ? 1 : 0; o[off + 10] = u.static ? 1 : 0; o[off + 11] = 1;   // present
+  }
+  return o;
+}
+
+/* the network: DeepSets over the neighbours (shared MLP, max + mean pooling), then an MLP; tanh outputs */
+class NpcBrain {
+  constructor(spec) {
+    const dec = (b64) => { const bin = typeof atob === "function" ? atob(b64) : Buffer.from(b64, "base64").toString("binary"), buf = new ArrayBuffer(bin.length), u8 = new Uint8Array(buf); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Float32Array(buf); };
+    const L = (ls) => ls.map((l) => ({ W: dec(l.W), b: dec(l.b), inp: l.inp, out: l.out }));
+    this.phi = L(spec.phi); this.rho = L(spec.rho); this.mean = dec(spec.obsMean); this.std = dec(spec.obsStd);
+    this.name = spec.name || "learned traffic"; this.logStd = spec.logStd || [-1.2, -1.2]; this.types = spec.types || NPC.TYPES;
+  }
+  static mlp(layers, x, last) {
+    layers.forEach((l, li) => { const y = new Float32Array(l.out); for (let o = 0; o < l.out; o++) { let s = l.b[o]; const row = o * l.inp; for (let i = 0; i < l.inp; i++) s += l.W[row + i] * x[i]; y[o] = li < layers.length - 1 ? Math.max(0, s) : last(s); } x = y; });
+    return x;
+  }
+  mean2(obs) {   // the mean action (before tanh is applied by the caller)
+    const x = new Float32Array(obs.length); for (let i = 0; i < obs.length; i++) x[i] = Math.max(-8, Math.min(8, (obs[i] - this.mean[i]) / this.std[i]));
+    const H = this.phi[this.phi.length - 1].out, mx = new Float32Array(H), mn = new Float32Array(H); let c = 0;
+    for (let j = 0; j < NPC.K; j++) {
+      const off = NPC.EGO + j * NPC.NB; if (obs[off + NPC.NB - 1] < 0.5) continue;
+      const h = NpcBrain.mlp(this.phi, x.subarray(off, off + NPC.NB), (s) => Math.max(0, s));
+      for (let i = 0; i < H; i++) { mx[i] = Math.max(mx[i], h[i]); mn[i] += h[i]; } c++;
+    }
+    if (c) for (let i = 0; i < H; i++) mn[i] /= c;
+    const z = new Float32Array(NPC.EGO + 2 * H); z.set(x.subarray(0, NPC.EGO)); z.set(mx, NPC.EGO); z.set(mn, NPC.EGO + H);
+    return NpcBrain.mlp(this.rho, z, (s) => s);
+  }
+}
+/* the rule-based decision expressed in the network's action space (for imitation and as the anchor during RL) */
+function npcLabel(v, vT, dT) { return [Math.max(-1, Math.min(1, vT / (v.T.vDes * 1.5) * 2 - 1)), Math.max(-1, Math.min(1, (dT - v.d) / NPC.LAT))]; }
+function npcApply(v, a) { return { vT: (a[0] + 1) / 2 * v.T.vDes * 1.5, dT: v.d + a[1] * NPC.LAT }; }
+
+let NPC_BRAIN = null;
+function setNpcBrain(b) { NPC_BRAIN = b; }
+function getNpcBrain() { return NPC_BRAIN; }
+if (typeof module !== "undefined") module.exports = { NPC, npcObs, NpcBrain, npcLabel, npcApply, setNpcBrain, getNpcBrain };
+
+/* ======================================================================
    LOTUS: 2D traffic core (no rendering; runs in the browser or Node).
    Units: metres, seconds. x east, y south (screen-like). Right-hand traffic.
    The road network comes from world.js (cityMap, buildPath).
@@ -1364,6 +1447,8 @@ class Sim {
     // Phase 3: a scenario genome reshapes who is on the road and how they ride (null = the default population)
     this.genome = opt.genome || null;
     if (this.genome && this.genome.density != null) this.density = this.genome.density;
+    // learned motorbikes and cars (web/npc.js) when a brain is given or set globally; null = the hand-written rules
+    this.brain = opt.brain !== undefined ? opt.brain : (typeof getNpcBrain === "function" ? getNpcBrain() : null);
     this.pedRate = this.genome && this.genome.pedRate != null ? this.genome.pedRate : 1;
     this.pJay = this.genome && this.genome.pJaywalk != null ? this.genome.pJaywalk : 0.15;
     for (const st of map.statics || []) this.agents.push(new Agent(this, st.kind, st.x, st.y, st.h, { static: true, l: st.l, w: st.w, z: st.z, seed: st.seed }));
@@ -1761,7 +1846,7 @@ class Sim {
             v.redRun = L.c === "R" && this.rand() < pRun;
           }
           if (!v.redRun) { stopS = p.sStop + (two && !p.rail ? v.aggr * 2.6 : 0); v.why = p.rail ? "barrier" : "red"; }
-          else if (!v.ranRed && v.s > p.sStop - 3) { v.ranRed = true; this.stats.redRuns.push(this.t); }
+          else if (!v.ranRed && v.s > p.sStop - 3) { v.ranRed = true; v.redT = this.t; this.stats.redRuns.push(this.t); }
         }
       }
     }
@@ -1840,8 +1925,25 @@ class Sim {
     vT = Math.min(vT, Math.sqrt(Math.max(0, 2 * brake * 0.7 * (freeNow - gap))));
     if (impatient && freeNow > 0.4) vT = Math.max(vT, 0.8);
     if (stopS < Infinity) vT = Math.min(vT, Math.sqrt(Math.max(0, 2 * brake * 0.7 * (stopS - v.s - v.l2 - 0.3))));
+    // a learned driver (web/npc.js) decides the target speed and the sideways target instead of the rules; emergency
+    // braking for what is right in front and the speed a bend allows stay physical limits
+    if (this.npcLog && !this.brain && NPC.TYPES[v.type] && !v.phantom && !(v.nextBrain > this.t)) {   // recording the rules (for imitation)
+      v.nextBrain = this.t + NPC.EVERY * (0.85 + 0.3 * this.rand());
+      this.npcLog(v, npcObs(this, v, list, lo, hi, i0, stopS), null, npcLabel(v, vT, v.dTarget));
+    }
+    if (this.brain && this.brain.types[v.type] && !v.phantom) {
+      if (!(v.nextBrain > this.t)) {
+        v.nextBrain = this.t + NPC.EVERY * (0.85 + 0.3 * this.rand());
+        const obs = npcObs(this, v, list, lo, hi, i0, stopS), m = this.brain.mean2(obs), u = [m[0], m[1]];
+        if (this.npcStd) { const ls = this.npcStd; for (let q = 0; q < 2; q++) { const g = Math.sqrt(-2 * Math.log(Math.max(1e-9, this.rand()))) * Math.cos(6.2832 * this.rand()); u[q] = m[q] + Math.exp(ls[q]) * g; } }
+        v.brainAct = npcApply(v, [Math.tanh(u[0]), Math.tanh(u[1])]);
+        if (this.npcLog) this.npcLog(v, obs, u, npcLabel(v, vT, v.dTarget));
+      }
+      vT = Math.min(v.brainAct.vT, Math.sqrt(Math.max(0, 2 * brake * (freeNow - 0.25))));
+      v.dTarget = clampN(v.brainAct.dT, lo, hi);
+    }
     for (let k = 0; k < 24; k += 3) { const i = Math.min(p.n - 1, i0 + k), dist = k * p.ds; vT = Math.min(vT, Math.sqrt(p.VMAX[i] * p.VMAX[i] + 2 * brake * 0.5 * dist)); }
-    const v0 = v.v;
+    const v0 = v.v; v.odo = (v.odo || 0) + v0 * dt;
     if (vT > v.v) v.v = Math.min(vT, v.v + acc * dt);
     else v.v = Math.max(vT, v.v - (freeNow < gap * 0.6 ? brake * 1.6 : brake) * dt);
     // --- move forward, never into another body (a squeezing vehicle still respects the self-driving car)
@@ -1911,8 +2013,8 @@ class Sim {
         const key = v.id * 100000 + u.id, last = this.pairSeen.has(key) ? this.pairSeen.get(key) : -99;
         const rel = Math.hypot(u.vx - v.vx, u.vy - v.vy);
         const ghosted = (v.ghostUntil || -99) > this.t - 6 || (u.ghostUntil || -99) > this.t - 6;
-        if (sep < -0.15) { if (last < 0 && !ghosted) { this.stats.collisions++; } this.pairSeen.set(key, this.t); }
-        else if (sep < 0.35 && rel > 2.5 && this.t - last > 3) { this.stats.nearMiss.push(this.t); this.pairSeen.set(key, this.t); }
+        if (sep < -0.15) { if (last < 0 && !ghosted) { this.stats.collisions++; v.hitT = u.hitT = this.t; } this.pairSeen.set(key, this.t); }
+        else if (sep < 0.35 && rel > 2.5 && this.t - last > 3) { this.stats.nearMiss.push(this.t); this.pairSeen.set(key, this.t); v.nearT = u.nearT = this.t; }
       }
     }
     if (this.pairSeen.size > 20000) this.pairSeen.clear();
@@ -3146,10 +3248,46 @@ class SetPolicy {
     return [y[0], y[1]];
   }
 }
-function makePolicy(spec) { return spec.type === "set" ? new SetPolicy(spec) : new MLPPolicy(spec); }
+/* the policy prior of the TD-MPC2 world model (rl/tdmpc2.py): set encoder -> latent (LayerNorm, Mish, SimNorm) -> policy
+   head; drives without the planner (the planner needs the dynamics, reward and value networks, which stay in Python) */
+class TDMPCPolicy extends SetPolicy {
+  constructor(spec) {
+    super(Object.assign({}, spec, { rho: spec.pi }));
+    const dec = (b64) => { const bin = atobAny(b64), buf = new ArrayBuffer(bin.length), u8 = new Uint8Array(buf); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Float32Array(buf); };
+    const L = (ls) => ls.map((l) => ({ W: dec(l.W), b: dec(l.b), inp: l.inp, out: l.out, act: l.act, ln: l.ln ? [dec(l.ln[0]), dec(l.ln[1])] : null }));
+    this.headL = L(spec.head); this.piL = L(spec.pi); this.sn = spec.simnorm || 8;
+  }
+  run(layers, x) {
+    for (const l of layers) {
+      let y = new Float32Array(l.out);
+      for (let o = 0; o < l.out; o++) { let s = l.b[o]; const row = o * l.inp; for (let i = 0; i < l.inp; i++) s += l.W[row + i] * x[i]; y[o] = s; }
+      if (l.ln) { let m = 0, v = 0; for (const t of y) m += t; m /= y.length; for (const t of y) v += (t - m) ** 2; v = Math.sqrt(v / y.length + 1e-5); for (let i = 0; i < y.length; i++) y[i] = (y[i] - m) / v * l.ln[0][i] + l.ln[1][i]; }
+      if (l.act === "mish") for (let i = 0; i < y.length; i++) { const t = y[i]; y[i] = t * Math.tanh(Math.log1p(Math.exp(Math.min(20, t)))); }
+      else if (l.act === "relu") for (let i = 0; i < y.length; i++) y[i] = Math.max(0, y[i]);
+      else if (l.act === "simnorm") for (let g = 0; g < y.length; g += this.sn) { let mx = -1e9, s = 0; for (let i = g; i < g + this.sn; i++) mx = Math.max(mx, y[i]); for (let i = g; i < g + this.sn; i++) { y[i] = Math.exp(y[i] - mx); s += y[i]; } for (let i = g; i < g + this.sn; i++) y[i] /= s; }
+      x = y;
+    }
+    return x;
+  }
+  act(obs) {
+    const n = obs.length, x = new Float32Array(n);
+    for (let i = 0; i < n; i++) x[i] = Math.max(-8, Math.min(8, (obs[i] - this.mean[i]) / this.std[i]));
+    const H = this.phi[this.phi.length - 1].out, mx = new Float32Array(H).fill(0), mn = new Float32Array(H); let cnt = 0;
+    for (let j = 0; j < this.K; j++) {
+      const off = this.egoDim + j * this.nb; if (obs[off + this.nb - 1] < 0.5) continue;
+      const h = this.mlp(this.phi, x.subarray(off, off + this.nb), (s) => Math.max(0, s));
+      for (let i = 0; i < H; i++) { mx[i] = Math.max(mx[i], h[i]); mn[i] += h[i]; } cnt++;
+    }
+    if (cnt) for (let i = 0; i < H; i++) mn[i] /= cnt;
+    const f = new Float32Array(this.egoDim + 2 * H); f.set(x.subarray(0, this.egoDim)); f.set(mx, this.egoDim); f.set(mn, this.egoDim + H);
+    const z = this.run(this.headL, f), out = this.run(this.piL, z);
+    return [Math.tanh(out[0]), Math.tanh(out[1])];   // the mean of the policy prior
+  }
+}
+function makePolicy(spec) { return spec.type === "tdmpc" ? new TDMPCPolicy(spec) : spec.type === "set" ? new SetPolicy(spec) : new MLPPolicy(spec); }
 function atobAny(s) { return typeof atob === "function" ? atob(s) : Buffer.from(s, "base64").toString("binary"); }
 
-if (typeof module !== "undefined") module.exports = { EgoEnv, ENV, MLPPolicy, SetPolicy, makePolicy };
+if (typeof module !== "undefined") module.exports = { EgoEnv, ENV, MLPPolicy, SetPolicy, TDMPCPolicy, makePolicy };
 
 /* ======================================================================
    LOTUS: the look-ahead teacher and a rule-based baseline.
@@ -3311,6 +3449,12 @@ if (typeof module !== "undefined") module.exports = { LookaheadPlanner, idmAct }
   let citySeed = 7, preset = "region", map, layers, sim, env, city = null, cityOv = null, centre = null, loadingMap = false;
   let qMap = null; try { qMap = new URLSearchParams(location.search).get("map"); if (qMap && PRESET_NAMES.includes(qMap)) preset = qMap; } catch (e) {}
   const AV = typeof AV_DATA !== "undefined" ? AV_DATA : null;
+  // learned motorbikes and cars (rl/npc_train.py), when the page was built with them
+  const NPCB = typeof NPC_DATA !== "undefined" ? new NpcBrain(NPC_DATA) : null;
+  let learnedTraffic = false;
+  if (NPCB) { $("trafficBox").hidden = false; $("trafficSep").hidden = false; }
+  const setTraffic = (on) => { learnedTraffic = on && !!NPCB; setNpcBrain(learnedTraffic ? NPCB : null); if (sim) sim.brain = learnedTraffic ? NPCB : null; $("trRules").setAttribute("aria-pressed", String(!learnedTraffic)); $("trLearned").setAttribute("aria-pressed", String(learnedTraffic)); };
+  $("trRules").onclick = () => setTraffic(false); $("trLearned").onclick = () => setTraffic(true);
 
   /* ---------- drivers for the self-driving car */
   const planner = new LookaheadPlanner({ vTs: [0, 4, 8, 12], lats: [-0.6, 0, 0.6], M: 2, H: 10 });

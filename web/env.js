@@ -369,7 +369,43 @@ class SetPolicy {
     return [y[0], y[1]];
   }
 }
-function makePolicy(spec) { return spec.type === "set" ? new SetPolicy(spec) : new MLPPolicy(spec); }
+/* the policy prior of the TD-MPC2 world model (rl/tdmpc2.py): set encoder -> latent (LayerNorm, Mish, SimNorm) -> policy
+   head; drives without the planner (the planner needs the dynamics, reward and value networks, which stay in Python) */
+class TDMPCPolicy extends SetPolicy {
+  constructor(spec) {
+    super(Object.assign({}, spec, { rho: spec.pi }));
+    const dec = (b64) => { const bin = atobAny(b64), buf = new ArrayBuffer(bin.length), u8 = new Uint8Array(buf); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Float32Array(buf); };
+    const L = (ls) => ls.map((l) => ({ W: dec(l.W), b: dec(l.b), inp: l.inp, out: l.out, act: l.act, ln: l.ln ? [dec(l.ln[0]), dec(l.ln[1])] : null }));
+    this.headL = L(spec.head); this.piL = L(spec.pi); this.sn = spec.simnorm || 8;
+  }
+  run(layers, x) {
+    for (const l of layers) {
+      let y = new Float32Array(l.out);
+      for (let o = 0; o < l.out; o++) { let s = l.b[o]; const row = o * l.inp; for (let i = 0; i < l.inp; i++) s += l.W[row + i] * x[i]; y[o] = s; }
+      if (l.ln) { let m = 0, v = 0; for (const t of y) m += t; m /= y.length; for (const t of y) v += (t - m) ** 2; v = Math.sqrt(v / y.length + 1e-5); for (let i = 0; i < y.length; i++) y[i] = (y[i] - m) / v * l.ln[0][i] + l.ln[1][i]; }
+      if (l.act === "mish") for (let i = 0; i < y.length; i++) { const t = y[i]; y[i] = t * Math.tanh(Math.log1p(Math.exp(Math.min(20, t)))); }
+      else if (l.act === "relu") for (let i = 0; i < y.length; i++) y[i] = Math.max(0, y[i]);
+      else if (l.act === "simnorm") for (let g = 0; g < y.length; g += this.sn) { let mx = -1e9, s = 0; for (let i = g; i < g + this.sn; i++) mx = Math.max(mx, y[i]); for (let i = g; i < g + this.sn; i++) { y[i] = Math.exp(y[i] - mx); s += y[i]; } for (let i = g; i < g + this.sn; i++) y[i] /= s; }
+      x = y;
+    }
+    return x;
+  }
+  act(obs) {
+    const n = obs.length, x = new Float32Array(n);
+    for (let i = 0; i < n; i++) x[i] = Math.max(-8, Math.min(8, (obs[i] - this.mean[i]) / this.std[i]));
+    const H = this.phi[this.phi.length - 1].out, mx = new Float32Array(H).fill(0), mn = new Float32Array(H); let cnt = 0;
+    for (let j = 0; j < this.K; j++) {
+      const off = this.egoDim + j * this.nb; if (obs[off + this.nb - 1] < 0.5) continue;
+      const h = this.mlp(this.phi, x.subarray(off, off + this.nb), (s) => Math.max(0, s));
+      for (let i = 0; i < H; i++) { mx[i] = Math.max(mx[i], h[i]); mn[i] += h[i]; } cnt++;
+    }
+    if (cnt) for (let i = 0; i < H; i++) mn[i] /= cnt;
+    const f = new Float32Array(this.egoDim + 2 * H); f.set(x.subarray(0, this.egoDim)); f.set(mx, this.egoDim); f.set(mn, this.egoDim + H);
+    const z = this.run(this.headL, f), out = this.run(this.piL, z);
+    return [Math.tanh(out[0]), Math.tanh(out[1])];   // the mean of the policy prior
+  }
+}
+function makePolicy(spec) { return spec.type === "tdmpc" ? new TDMPCPolicy(spec) : spec.type === "set" ? new SetPolicy(spec) : new MLPPolicy(spec); }
 function atobAny(s) { return typeof atob === "function" ? atob(s) : Buffer.from(s, "base64").toString("binary"); }
 
-if (typeof module !== "undefined") module.exports = { EgoEnv, ENV, MLPPolicy, SetPolicy, makePolicy };
+if (typeof module !== "undefined") module.exports = { EgoEnv, ENV, MLPPolicy, SetPolicy, TDMPCPolicy, makePolicy };

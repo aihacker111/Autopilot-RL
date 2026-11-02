@@ -96,6 +96,8 @@ class Sim {
     // Phase 3: a scenario genome reshapes who is on the road and how they ride (null = the default population)
     this.genome = opt.genome || null;
     if (this.genome && this.genome.density != null) this.density = this.genome.density;
+    // learned motorbikes and cars (web/npc.js) when a brain is given or set globally; null = the hand-written rules
+    this.brain = opt.brain !== undefined ? opt.brain : (typeof getNpcBrain === "function" ? getNpcBrain() : null);
     this.pedRate = this.genome && this.genome.pedRate != null ? this.genome.pedRate : 1;
     this.pJay = this.genome && this.genome.pJaywalk != null ? this.genome.pJaywalk : 0.15;
     for (const st of map.statics || []) this.agents.push(new Agent(this, st.kind, st.x, st.y, st.h, { static: true, l: st.l, w: st.w, z: st.z, seed: st.seed }));
@@ -493,7 +495,7 @@ class Sim {
             v.redRun = L.c === "R" && this.rand() < pRun;
           }
           if (!v.redRun) { stopS = p.sStop + (two && !p.rail ? v.aggr * 2.6 : 0); v.why = p.rail ? "barrier" : "red"; }
-          else if (!v.ranRed && v.s > p.sStop - 3) { v.ranRed = true; this.stats.redRuns.push(this.t); }
+          else if (!v.ranRed && v.s > p.sStop - 3) { v.ranRed = true; v.redT = this.t; this.stats.redRuns.push(this.t); }
         }
       }
     }
@@ -572,8 +574,25 @@ class Sim {
     vT = Math.min(vT, Math.sqrt(Math.max(0, 2 * brake * 0.7 * (freeNow - gap))));
     if (impatient && freeNow > 0.4) vT = Math.max(vT, 0.8);
     if (stopS < Infinity) vT = Math.min(vT, Math.sqrt(Math.max(0, 2 * brake * 0.7 * (stopS - v.s - v.l2 - 0.3))));
+    // a learned driver (web/npc.js) decides the target speed and the sideways target instead of the rules; emergency
+    // braking for what is right in front and the speed a bend allows stay physical limits
+    if (this.npcLog && !this.brain && NPC.TYPES[v.type] && !v.phantom && !(v.nextBrain > this.t)) {   // recording the rules (for imitation)
+      v.nextBrain = this.t + NPC.EVERY * (0.85 + 0.3 * this.rand());
+      this.npcLog(v, npcObs(this, v, list, lo, hi, i0, stopS), null, npcLabel(v, vT, v.dTarget));
+    }
+    if (this.brain && this.brain.types[v.type] && !v.phantom) {
+      if (!(v.nextBrain > this.t)) {
+        v.nextBrain = this.t + NPC.EVERY * (0.85 + 0.3 * this.rand());
+        const obs = npcObs(this, v, list, lo, hi, i0, stopS), m = this.brain.mean2(obs), u = [m[0], m[1]];
+        if (this.npcStd) { const ls = this.npcStd; for (let q = 0; q < 2; q++) { const g = Math.sqrt(-2 * Math.log(Math.max(1e-9, this.rand()))) * Math.cos(6.2832 * this.rand()); u[q] = m[q] + Math.exp(ls[q]) * g; } }
+        v.brainAct = npcApply(v, [Math.tanh(u[0]), Math.tanh(u[1])]);
+        if (this.npcLog) this.npcLog(v, obs, u, npcLabel(v, vT, v.dTarget));
+      }
+      vT = Math.min(v.brainAct.vT, Math.sqrt(Math.max(0, 2 * brake * (freeNow - 0.25))));
+      v.dTarget = clampN(v.brainAct.dT, lo, hi);
+    }
     for (let k = 0; k < 24; k += 3) { const i = Math.min(p.n - 1, i0 + k), dist = k * p.ds; vT = Math.min(vT, Math.sqrt(p.VMAX[i] * p.VMAX[i] + 2 * brake * 0.5 * dist)); }
-    const v0 = v.v;
+    const v0 = v.v; v.odo = (v.odo || 0) + v0 * dt;
     if (vT > v.v) v.v = Math.min(vT, v.v + acc * dt);
     else v.v = Math.max(vT, v.v - (freeNow < gap * 0.6 ? brake * 1.6 : brake) * dt);
     // --- move forward, never into another body (a squeezing vehicle still respects the self-driving car)
@@ -643,8 +662,8 @@ class Sim {
         const key = v.id * 100000 + u.id, last = this.pairSeen.has(key) ? this.pairSeen.get(key) : -99;
         const rel = Math.hypot(u.vx - v.vx, u.vy - v.vy);
         const ghosted = (v.ghostUntil || -99) > this.t - 6 || (u.ghostUntil || -99) > this.t - 6;
-        if (sep < -0.15) { if (last < 0 && !ghosted) { this.stats.collisions++; } this.pairSeen.set(key, this.t); }
-        else if (sep < 0.35 && rel > 2.5 && this.t - last > 3) { this.stats.nearMiss.push(this.t); this.pairSeen.set(key, this.t); }
+        if (sep < -0.15) { if (last < 0 && !ghosted) { this.stats.collisions++; v.hitT = u.hitT = this.t; } this.pairSeen.set(key, this.t); }
+        else if (sep < 0.35 && rel > 2.5 && this.t - last > 3) { this.stats.nearMiss.push(this.t); this.pairSeen.set(key, this.t); v.nearT = u.nearT = this.t; }
       }
     }
     if (this.pairSeen.size > 20000) this.pairSeen.clear();
