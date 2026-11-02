@@ -164,6 +164,7 @@ class Sim:
     def signature(self):
         fs = []
         for d in self.dirs():
+            if os.path.basename(d) == "tdmpc2": continue   # swapped in live by the page (/api/policy), no reload needed
             for f in glob.glob(os.path.join(d, "*.json")):
                 if re.match(r"(student_r\d+|step_\d+|final|latest|policy)\.json$", os.path.basename(f)): fs.append((f, os.path.getmtime(f)))
         return str(hash(tuple(sorted(fs))))
@@ -198,6 +199,18 @@ def make_handler(runs, host, sim):
                 elif u.path == "/api/log": self.send(json.dumps(tail(os.path.join(runs, "pipeline.log"), min(2000, int(q.get("n", ["200"])[0])))))
                 elif u.path == "/api/ckpt": self.send(json.dumps({"sig": sim.signature()}))
                 elif u.path == "/sim": self.send(sim.page(), "text/html; charset=utf-8")
+                elif u.path == "/api/episodes":   # recorded TD-MPC2 training episodes, replayed by the /sim page
+                    d = os.path.join(runs, "tdmpc2", "episodes")
+                    if "id" in q:
+                        f = os.path.join(d, f"ep_{int(q['id'][0]):06d}.json")
+                        if os.path.isfile(f): self.send(open(f, "rb").read())
+                        else: self.send(json.dumps({"error": "episode not found"}), code=404)
+                    else: self.send(json.dumps({"episodes": load(os.path.join(d, "index.json")) or []}))
+                elif u.path == "/api/policy":   # the newest TD-MPC2 snapshot: the /sim page swaps it in while it drives
+                    f = os.path.join(runs, "tdmpc2", "policy.json")
+                    if "meta" in q: self.send(json.dumps({"v": os.path.getmtime(f) if os.path.isfile(f) else None}))
+                    elif os.path.isfile(f): self.send(open(f, "rb").read())
+                    else: self.send(json.dumps({"error": "no TD-MPC2 snapshot yet"}), code=404)
                 elif u.path.startswith("/hcm/"):   # the Ho Chi Minh City map data (web/hcm), fetched by the /sim page
                     base = os.path.realpath(os.path.join(ROOT, "web", "hcm")); f = os.path.realpath(os.path.join(base, u.path[5:]))
                     if f.startswith(base + os.sep) and os.path.isfile(f): self.send(open(f, "rb").read())

@@ -288,11 +288,16 @@ python pipeline.py --stages npc,2,3,4      # đặt traffic: learned trong confi
 python rl/npc_train.py --iters 40 --workers 16   # hoặc chạy riêng; kết quả ở rl/runs/npc/npc.json
 ```
 
-**Mô hình thế giới học được** (`rl/tdmpc2.py`, TD-MPC2 của Hansen, Su & Wang, ICLR 2024): xe lái bằng cách lập kế hoạch trong mô hình do chính nó học.
-- Mô hình gồm năm phần: bộ mã hoá (DeepSets trên 16 đối tượng gần nhất, cùng quan sát với các người lái khác), động lực học trong không gian ẩn ("0,2 giây sau hành động này thì thế nào"), mô hình phần thưởng, 5 hàm Q và một chính sách gợi ý.
-- Mỗi quyết định, nó tưởng tượng 512 tương lai dài 3 bước trong không gian ẩn, tinh chỉnh 6 lần (MPPI), cộng giá trị học được cho phần sau đó, rồi chọn hành động đầu tốt nhất.
-- Bộ nhớ có thể khởi đầu bằng các lượt lái của người thầy (`--demos`), giúp học nhanh hơn nhiều. Khác với người thầy, nó không bao giờ sao chép mô phỏng để nhìn trước.
-- Trên trình duyệt nó là người lái **TD-MPC2** và chỉ dùng chính sách gợi ý, vì bộ lập kế hoạch cần các mạng động lực học, phần thưởng và giá trị, vốn nằm ở Python.
+**Mô hình thế giới học được** (`rl/tdmpc2.py`, TD-MPC2 của Hansen, Su & Wang, ICLR 2024, có mở rộng): xe lái bằng cách lập kế hoạch trong mô hình do chính nó học.
+- **Mô hình:** bộ mã hoá (DeepSets trên 16 đối tượng gần nhất nhìn thấy được), động lực học trong không gian ẩn, mô hình phần thưởng, 5 hàm Q và chính sách gợi ý, cộng thêm:
+  - **đầu vật lý:** từ trạng thái ẩn đoán tốc độ của xe và vị trí, chuyển động của 6 đối tượng gần nhất; từ trạng thái ẩn và hành động đoán xe tự di chuyển thế nào trong 0,2 giây. Lăn qua động lực học, đây là dự đoán tương lai vật lý;
+  - **đầu va chạm:** xác suất va chạm trong 1, 2 và 3 giây;
+  - **nhiều tương lai:** động lực học đưa ra 4 giả thuyết cho bước tiếp theo kèm xác suất (multiple-choice learning), nên mô hình tưởng tượng được cả khi xe máy tạt đầu lẫn khi không;
+  - **genome kịch bản:** động lực học, phần thưởng, giá trị và va chạm có điều kiện theo 13 gen của giai đoạn 3 (ai ở trên đường, chạy kiểu gì), nên mô hình là một bộ mô phỏng học được cho mọi văn hoá giao thông.
+- **Lập kế hoạch tính đến rủi ro:** mỗi 0,2 giây, nó tưởng tượng 256 phương án dài 6 bước (1,2 giây), mỗi phương án trong 3 tương lai bốc ngẫu nhiên, tinh chỉnh 5 lần (MPPI), và chấm điểm bằng phần thưởng trừ xác suất va chạm dự đoán, lấy giữa trung bình và tương lai xấu nhất (CVaR).
+- **Tiến hoá bên trong world model:** cứ 50k bước, MAP-Elites đề xuất 512 genome kịch bản và chấm chúng trong "giấc mơ" của mô hình (xe sẽ được bao nhiêu điểm, va chạm thường đến mức nào với văn hoá giao thông đó). 12 genome hứa hẹn nhất được kiểm tra trong mô phỏng thật (độ khó với xe hiện tại, và bộ lọc độ thật của giai đoạn 3). Những kịch bản khó mà thật được giữ trong một kho đa dạng và dùng cho 40% bản đồ train mới; kịch bản xe đã thắng thì bị loại. Log ghi mức độ "giấc mơ" đoán đúng thực tế (`evo/log.json`, `dream_vs_real`).
+- **Thưởng v2 và người thầy phòng thủ:** đâm xe −25, đâm người −40, bị đâm −5; thêm lái phòng thủ: chậm lại gần người đi bộ, giữ khoảng 1,2 giây với xe trước, không chạy nhanh hơn mức dừng kịp trong tầm nhìn. Tầm nhìn xa khoảng 20 giây (`gamma` 0,99). Bộ nhớ khởi đầu bằng 40k quyết định của người thầy nhìn trước, cũng tính chi phí lái phòng thủ y như vậy. Giai đoạn 2 và 3 giữ nguyên phần thưởng cũ.
+- **Trên trình duyệt:** nút **Training** ở trang `/sim` của monitor phát lại chính xác các episode train thật (cùng seed, cùng giao thông, đúng các hành động planner đã chọn), kèm những gì nó tưởng tượng ở mỗi quyết định: đường đi trong từng tương lai (cam), nơi nó đoán xe quanh sẽ ở (tím, nét đứt hồng cho các tương lai khác) và rủi ro va chạm dự đoán. **Prior** là riêng chính sách gợi ý, được thay mới trực tiếp mỗi 2k bước.
 
 ```bash
 python pipeline.py --stages wm             # huấn luyện và chấm trên bộ đề cố định, đặt cạnh xe PPO

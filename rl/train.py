@@ -41,24 +41,32 @@ class Worker:
 
 class VecEnv:
     """W Node processes x n environments each, stepped in lockstep."""
-    def __init__(self, workers, envs_per_worker, seed=1, density=None, density_range=None, curriculum=0, extra=None):
+    def __init__(self, workers, envs_per_worker, seed=1, density=None, density_range=None, curriculum=0, extra=None, extra0=None):
         ramp = int(curriculum / max(1, workers * envs_per_worker))
-        self.ws = [Worker(envs_per_worker, seed * 100 + i, density, density_range, ramp, extra) for i in range(workers)]
+        self.ws = [Worker(envs_per_worker, seed * 100 + i, density, density_range, ramp, dict(extra or {}, **(extra0 if i == 0 and extra0 else {})) or None) for i in range(workers)]
         self.n = workers * envs_per_worker
         self.obs_dim = self.ws[0].info["obs_dim"]; self.act_dim = self.ws[0].info["act_dim"]
 
     def reset(self):
         for w in self.ws: w.send({"cmd": "reset"})
-        return np.array(sum([w.recv()["obs"] for w in self.ws], []), dtype=np.float32)
+        rs = [w.recv() for w in self.ws]
+        self.gen = np.array(sum([r["gen"] for r in rs], []), np.float32) if "gen" in rs[0] else None   # world model: scenario genomes
+        return np.array(sum([r["obs"] for r in rs], []), dtype=np.float32)
 
     def step(self, actions):
         k = 0
         for w in self.ws:
             w.send({"cmd": "step", "actions": actions[k:k + w.n].tolist()}); k += w.n
-        obs, rew, done, infos = [], [], [], []
+        obs, rew, done, infos, aux, gen = [], [], [], [], [], []
         for w in self.ws:   # workers run in parallel; we only collect here
-            r = w.recv(); obs += r["obs"]; rew += r["rew"]; done += r["done"]; infos += r["infos"]
+            r = w.recv(); obs += r["obs"]; rew += r["rew"]; done += r["done"]; infos += r["infos"]; aux += r.get("aux", []); gen += r.get("gen", [])
+        self.aux = np.array(aux, np.float32) if aux else None; self.gen = np.array(gen, np.float32) if gen else None   # world model extras (tdmpc2.py)
         return np.array(obs, np.float32), np.array(rew, np.float32), np.array(done, bool), infos
+
+    def set_pool(self, pool, p):
+        """evolved scenario genomes, mixed into the next map of every environment"""
+        for w in self.ws: w.send({"cmd": "pool", "pool": pool, "p": p})
+        for w in self.ws: w.recv()
 
     def close(self):
         for w in self.ws: w.close()

@@ -10,14 +10,26 @@ npc:                     # learned road users (rl/npc_train.py): imitation of th
   ppo_steps: 3000        # simulation steps per worker per iteration
   stats_steps: 3000      # for the realism report (rules vs network)
 
-world_model:             # TD-MPC2 (rl/tdmpc2.py): a learned latent model of the world, driving by planning (--stages wm)
+world_model:             # TD-MPC2 v2 (rl/tdmpc2.py): a learned world model with physics and several futures, driving by risk-aware planning (--stages wm)
   steps: 1000000
-  demos: 40000           # teacher drives that seed the replay buffer (0 = from scratch)
+  demos: 40000           # drives of the defensive teacher that seed the replay buffer (0 = from scratch)
   envs: 4                # environments per worker
-  samples: 512           # imagined futures per decision
+  samples: 256           # candidate plans per decision
+  futures: 3             # sampled futures each plan is imagined in (the dynamics has 4 hypotheses)
+  horizon: 6             # decisions of 0.2 s planned ahead (1.2 s), then the learned value
+  risk: 0.5              # weight of the worst future vs the average (CVaR)
+  coll_cost: 8.0         # planning cost of the predicted probability of contact
+  gamma: 0.99            # ~20 s of foresight (0.97 was ~7 s: crashing looked cheap)
+  reward: v2             # crash -25, hitting a person -40, being hit -5, defensive driving; v1 = the reward of phases 2-3
+  reseed: 600            # decisions between fresh maps per environment (evolved scenarios enter with new maps)
+  evo_every: 50000       # scenario evolution inside the world model: a generation every N steps (0 = off)
+  evo_start: 100000      # ... once the model has learned something
+  evo_cands: 512         # genomes imagined per generation
+  evo_real: 12           # of which the most promising are checked in the simulation (difficulty + realism)
+  pool_p: 0.4            # share of new maps that use an evolved scenario
   eval_n: 48
   eval_every: 100000
-  export_every: 10000    # a snapshot for the live simulator page (monitor /sim follows the car as it learns)
+  export_every: 2000     # a snapshot for the live simulator page: monitor /sim swaps it into the car as it drives
 
 phase2:                  # teacher with full state: look-ahead planner -> DAgger student -> PPO fine-tuning
   eval_n: 240            # fixed evaluation scenarios

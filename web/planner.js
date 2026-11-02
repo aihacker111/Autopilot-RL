@@ -24,6 +24,7 @@ class LookaheadPlanner {
     this.H = opt.H || 12;                // decisions of look-ahead (x 0.2 s)
     this.radius = opt.radius || 30;      // metres of world copied around the car
     this.mix = opt.mix ?? 0.6;           // weight of the worst future vs the average
+    this.defensive = !!opt.defensive;    // also price defensive driving (slow near people, time gap, stop within sight)
     this.calls = 0;
   }
   /* the copied world as the car knows it: visible road users only, plus phantoms where it cannot see */
@@ -68,6 +69,7 @@ class LookaheadPlanner {
       }
       const li = Math.min(ce.path.n - 1, Math.round(ce.s / ce.path.ds));
       if (ce.v > ce.path.VMAX[li] + 1.5) score -= 0.05 * (ce.v - ce.path.VMAX[li]) * disc;
+      if (this.defensive) score -= 1.5 * defensiveCost(c, ce, env.sight) * disc;
     }
     // end state: can we still stop for what is ahead? penalise ending fast and close to something
     for (const u of c.near(ce, 20)) {

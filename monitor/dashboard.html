@@ -348,7 +348,7 @@ pre.log { margin: 0; max-height: 360px; overflow: auto; background: var(--surfac
         else detail = "Motorbikes and cars learn to drive"; }
       if (st.id === "wm.tdmpc2") { const Wm = (s.wm || {}).status, R = (s.wm || {}).result;
         if (R) { if (!h) state = "done"; detail = `Done · ${pct(R.summary.ok)} completed · ${pct(R.summary.crash)} crash`; }
-        else if (Wm) { prog = Wm.steps && Wm.total ? Wm.steps / Wm.total : null; detail = Wm.phase === "demos" ? "The teacher drives (demonstrations)" : `${kfmt(Wm.steps || 0)} steps · ${pct(Wm.ok || 0)} completed`; if (!h) state = fresh(Wm.t) ? "active" : "pending"; }
+        else if (Wm) { prog = Wm.steps && Wm.total ? Wm.steps / Wm.total : null; detail = Wm.phase === "demos" ? "The defensive teacher drives (demonstrations)" : Wm.phase === "evolve" ? `${kfmt(Wm.steps || 0)} steps · evolving scenarios in imagination` : `${kfmt(Wm.steps || 0)} steps · ${pct(Wm.ok || 0)} completed · ${pct(Wm.crash || 0)} crash${Wm.evo_cells ? ` · ${Wm.evo_cells} evolved scenarios` : ""}`; if (!h) state = fresh(Wm.t) ? "active" : "pending"; }
         else detail = "Plans in a learned model of the world"; }
       if (st.id === "4.carla") { const L = s.phase4.log || []; detail = s.phase4.result ? "Done" : L.length ? `Round ${L.length}` : "Student learns from cameras"; if (!h && s.phase4.result) state = "done"; }
       if (P.stages && !P.stages.includes(st.id.split(".")[0]) && state === "pending") state = "skip";

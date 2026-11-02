@@ -24,6 +24,28 @@ ENV.PRESET_W = { hcm: 1 };
 ENV.PRESET_W_GEN = { region: 0.26, city: 0.2, alley: 0.08, roundabout: 0.08, highway: 0.1, rail: 0.08, rural: 0.09, pass: 0.11 };
 const EYE = { ego: 1.3, ped: 1.5, buffalo: 1.3, train: 3.0, bus: 2.7, truck: 2.6, tractor: 1.8, stall: 1.6, parked: 1.3, moto: 1.3, stalled: 0.9, bike: 1.4, car: 1.3, taxi: 1.3 };
 
+/* Defensive driving, as a cost (reward v2 of the world-model driver, and the defensive teacher that demonstrates it):
+   slow down near people on or beside the road, keep a time gap to the vehicle ahead, and never drive faster than one can
+   stop within what one can see. Returns the cost of one decision (>= 0). */
+function defensiveCost(sim, e, sight) {
+  let c = 0;
+  const v = e.v;
+  for (const u of sim.near(e, 22)) {
+    if (u === e || u.phantom) continue;
+    const dx = u.x - e.x, dy = u.y - e.y, fx = dx * e.tx + dy * e.ty, fy = dx * e.nx + dy * e.ny;
+    if (fx <= 0) continue;
+    if ((u.kind === "ped" || u.kind === "buffalo") && fx < 18 && Math.abs(fy) < 5.5) {   // a person near our path: be ready to stop
+      const vSafe = Math.max(1.5, Math.min(9, 1.5 + 0.45 * (fx - 2) + 0.6 * Math.max(0, Math.abs(fy) - 2)));
+      if (v > vSafe) c += 0.05 * (v - vSafe);
+    } else if (!u.static && Math.abs(fy) < e.w2 + (u.w2 || 0.4) + 0.3 && v > 2) {   // the vehicle ahead: at least ~1.2 s of gap
+      const gap = fx - e.l2 - (u.l2 || 0.5), hw = gap / v;
+      if (hw < 1.2) c += 0.05 * Math.min(1.5, (1.2 - hw) / 1.2);
+    }
+  }
+  if (sight != null) { const need = v * 0.6 + v * v / (2 * 4.5) + 2; if (sight < need) c += 0.03 * Math.min(3, (need - sight) / 3); }
+  return c;
+}
+
 class EgoEnv {
   constructor(opts = {}) {
     this.seed = opts.seed || 1;
@@ -37,6 +59,7 @@ class EgoEnv {
     this.routeM = opts.routeM || ENV.ROUTE_M;
     this.terminalRed = opts.terminalRed ?? true;
     this.occlusion = opts.occlusion ?? true;           // the car only observes what it can see
+    this.rewardV2 = opts.reward === "v2";              // the world-model driver: heavier crashes (people most), defensive driving
     this.decisions = 0; this.nextReseed = this.reseedEvery; this.episodes = 0;
     this.sim = opts.sim || null; this.ego = null;
     this.genome = opts.genome || null;
@@ -175,7 +198,12 @@ class EgoEnv {
     this.prevAct = [a0, a1];
     const lp = e.path, li = Math.min(lp.n - 1, Math.round(e.s / lp.ds));
     if (e.v > lp.VMAX[li] + 1.5) r -= 0.04 * (e.v - lp.VMAX[li] - 1.5);   // too fast for the bend, the market, the flood
-    if (crash) { done = true; this.crashWith = crash.u; this.result = crash.fault ? "crash" : "hit"; if (crash.fault) r -= 10; }
+    if (this.rewardV2) r -= defensiveCost(sim, e, this.sight);
+    if (crash) {
+      done = true; this.crashWith = crash.u; this.result = crash.fault ? "crash" : "hit";
+      if (!this.rewardV2) { if (crash.fault) r -= 10; }
+      else r -= crash.fault ? (crash.u.kind === "ped" || crash.u.kind === "buffalo" ? 40 : 25) : 5;   // being hit: a defensive driver often avoids it
+    }
     else if (ranRed && this.terminalRed) { done = true; this.result = "red"; }
     else if (this.lastLeg() && e.s >= Math.min(e.path.len - 1, e.path.sOut + ENV.END_AFTER)) { r += 5; done = true; this.result = "ok"; }
     else if (sim.t - this.t0 > this.timeout) { r -= 2; done = true; this.result = "timeout"; }
@@ -408,4 +436,4 @@ class TDMPCPolicy extends SetPolicy {
 function makePolicy(spec) { return spec.type === "tdmpc" ? new TDMPCPolicy(spec) : spec.type === "set" ? new SetPolicy(spec) : new MLPPolicy(spec); }
 function atobAny(s) { return typeof atob === "function" ? atob(s) : Buffer.from(s, "base64").toString("binary"); }
 
-if (typeof module !== "undefined") module.exports = { EgoEnv, ENV, MLPPolicy, SetPolicy, TDMPCPolicy, makePolicy };
+if (typeof module !== "undefined") module.exports = { EgoEnv, ENV, MLPPolicy, SetPolicy, TDMPCPolicy, makePolicy, defensiveCost };

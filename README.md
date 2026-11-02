@@ -290,11 +290,16 @@ python pipeline.py --stages npc,2,3,4      # with traffic: learned in configs/de
 python rl/npc_train.py --iters 40 --workers 16   # or on its own; result in rl/runs/npc/npc.json
 ```
 
-**Learned world model** (`rl/tdmpc2.py`, TD-MPC2 by Hansen, Su & Wang, ICLR 2024) drives by planning in a model it learned itself.
-- The model has five parts: an encoder (DeepSets over the 16 nearest road users, the same observation as the other drivers), latent dynamics ("what happens 0.2 s after this action"), a reward model, an ensemble of 5 Q functions and a policy prior.
-- Each decision it imagines 512 futures over 3 decisions in the latent space, refines them 6 times (MPPI), adds a learned value for what comes after, and takes the best first action.
-- The replay buffer can start with drives by the look-ahead teacher (`--demos`), which shortens learning a lot. Unlike the teacher, it never copies the simulator to look ahead.
-- In the browser it appears as the **TD-MPC2** driver, driving with its policy prior alone, because the planner needs the dynamics, reward and value networks, which stay in Python.
+**Learned world model** (`rl/tdmpc2.py`, TD-MPC2 by Hansen, Su & Wang, ICLR 2024, extended) drives by planning in a model it learned itself.
+- **The model:** an encoder (DeepSets over the 16 nearest road users it can see), latent dynamics, a reward model, an ensemble of 5 Q functions and a policy prior, plus:
+  - **physics heads:** from the latent, the car's speed and where the 6 nearest road users are and how they move; from latent and action, how the car itself moves in 0.2 s. Rolled through the dynamics, this is a prediction of the physical future;
+  - **collision head:** the probability of contact within 1, 2 and 3 s;
+  - **several futures:** the dynamics proposes 4 hypotheses of the next latent with their odds (multiple-choice learning), so the model can imagine the motorbike cutting in *and* not cutting in;
+  - **scenario genome:** dynamics, reward, value and collision are conditioned on the 13 genes of phase 3 (who is on the road and how they ride), so it is a learned simulator of any traffic culture.
+- **Risk-aware planning:** every 0.2 s it imagines 256 candidate plans over 6 decisions (1.2 s), each in 3 sampled futures, refines them 5 times (MPPI), and scores a plan by its return minus the predicted contact, halfway between the average and the worst future (CVaR).
+- **Evolution inside the world model:** every 50k steps, MAP-Elites proposes 512 scenario genomes and scores them in the model's imagination (how much return the car would get, how often it would touch someone, in that traffic culture). The 12 most promising are checked in the simulation (difficulty for the current car, and the realism filter of phase 3); the hard, realistic ones are kept in a diverse archive and used for 40% of new training maps. Scenarios the car has mastered drop out. The log reports how well imagination predicted reality (`evo/log.json`, `dream_vs_real`).
+- **Reward v2 and a defensive teacher:** crashes cost 25, hitting a person 40, being hit 5; on top, defensive driving: slow down near people, keep ~1.2 s to the vehicle ahead, never drive faster than one can stop within sight. Foresight is ~20 s (`gamma` 0.99). The replay buffer starts with 40k decisions of the look-ahead teacher, which prices the same defensive driving. Phases 2 and 3 keep their reward.
+- **In the browser:** the **Training** driver on the monitor's `/sim` page replays real training episodes exactly (same seed, same traffic, the actions it chose with its planner), with what it imagined at each decision: its path in each future (orange), where it expected nearby road users to be (violet, dashed pink for the other futures) and its predicted risk of contact. **Prior** is the policy prior alone, swapped in live every 2k steps.
 
 ```bash
 python pipeline.py --stages wm             # trains it and scores it on the fixed suite, next to the PPO car
