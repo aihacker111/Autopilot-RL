@@ -263,7 +263,8 @@ def export_policy(agent, path, name, steps):
         return out
     e = agent.m.enc
     json.dump({"type": "tdmpc", "name": name, "steps": steps, "egoDim": HEAD, "K": K, "nbDim": NB, "obsMean": b64(e.mean), "obsStd": b64(e.std),
-               "phi": seq(e.phi), "head": seq(e.head), "pi": seq(agent.m.pi), "simnorm": 8}, open(path, "w"))
+               "phi": seq(e.phi), "head": seq(e.head), "pi": seq(agent.m.pi), "simnorm": 8}, open(path + ".tmp", "w"))
+    os.replace(path + ".tmp", path)   # atomic: the monitor never reads a half-written file
 
 
 # ---------------------------------------------------------------- training loop
@@ -315,6 +316,8 @@ def train(a):
             row = {"steps": steps, "minutes": round((time.time() - t0) / 60, 1), "ok": round(m("ok"), 3), "crash": round(m("crash"), 3), "timeout": round(m("timeout"), 3), "updates": upd, **({k: round(v, 4) for k, v in stats.items()} if upd else {})}
             log.append(row); print(json.dumps(row), flush=True); json.dump(log, open(os.path.join(a.out, "log.json"), "w"), indent=1)
             note(a.out, phase="train", total=a.steps, **row)
+        if a.export_every and upd and steps // a.export_every != (steps - N) // a.export_every:   # a snapshot for the live simulator page (no evaluation)
+            export_policy(agent, os.path.join(a.out, "policy.json"), f"TD-MPC2 prior {steps // 1000}k", steps)
         if a.eval_every and steps - last_eval >= a.eval_every:
             last_eval = steps; agent.save(os.path.join(a.out, f"ckpt_{steps}.pt"), steps); export_policy(agent, os.path.join(a.out, "policy.json"), f"TD-MPC2 prior {steps // 1000}k", steps)
             ev, _ = evaluate(agent, a.eval_n, a.workers, dev); ev["steps"] = steps; print(json.dumps({"eval": ev}), flush=True)
@@ -330,6 +333,7 @@ def train(a):
 def parse():
     p = argparse.ArgumentParser()
     p.add_argument("--steps", type=int, default=1_000_000); p.add_argument("--workers", type=int, default=max(1, min(16, (os.cpu_count() or 2) - 1)))
+    p.add_argument("--export-every", type=int, default=10000, help="write policy.json for the live simulator page this often (0 = only at evaluations)")
     p.add_argument("--envs", type=int, default=4); p.add_argument("--seed", type=int, default=1)
     p.add_argument("--demos", type=int, default=40000, help="teacher decisions to start the buffer with (0 = learn from scratch)")
     p.add_argument("--demo-frac", type=float, default=0.5); p.add_argument("--bc", type=float, default=1.0, help="weight of cloning the teacher in the policy loss (fades out)")

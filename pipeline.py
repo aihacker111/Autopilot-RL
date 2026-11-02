@@ -132,7 +132,7 @@ def phase_wm(c, W, dev, redo):
     out = os.path.join(RUNS, "tdmpc2"); res = os.path.join(out, "eval_final.json")
     stage("wm.tdmpc2")
     if not (os.path.exists(res) and not redo):
-        sh([PY, os.path.join(RL, "tdmpc2.py"), "--steps", c["steps"], "--demos", c["demos"], "--workers", W, "--envs", c["envs"], "--samples", c["samples"], "--eval-n", c["eval_n"], "--eval-every", c["eval_every"], "--device", dev, "--out", out])
+        sh([PY, os.path.join(RL, "tdmpc2.py"), "--steps", c["steps"], "--demos", c["demos"], "--workers", W, "--envs", c["envs"], "--samples", c["samples"], "--eval-n", c["eval_n"], "--eval-every", c["eval_every"], "--export-every", c.get("export_every", 10000), "--device", dev, "--out", out])
     stage("wm.tdmpc2", "done")
     return json.load(open(res))["summary"]
 

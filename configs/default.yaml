@@ -17,6 +17,7 @@ world_model:             # TD-MPC2 (rl/tdmpc2.py): a learned latent model of the
   samples: 512           # imagined futures per decision
   eval_n: 48
   eval_every: 100000
+  export_every: 10000    # a snapshot for the live simulator page (monitor /sim follows the car as it learns)
 
 phase2:                  # teacher with full state: look-ahead planner -> DAgger student -> PPO fine-tuning
   eval_n: 240            # fixed evaluation scenarios

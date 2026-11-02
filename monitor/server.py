@@ -146,8 +146,9 @@ def status(runs, host):
 # ---------------------------------------------------------------- live simulator page
 LIVE_JS = """<script>
 (function(){var sig=null;function chk(){fetch('/api/ckpt').then(function(r){return r.json()}).then(function(j){
-if(sig===null){sig=j.sig;return}if(j.sig!==sig){var b=document.getElementById('lotusLive');b.hidden=false}}).catch(function(){})}
-setInterval(chk,20000);chk();})();
+if(sig===null){sig=j.sig;return}if(j.sig!==sig){var b=document.getElementById('lotusLive');b.hidden=false;
+if(live){sig=j.sig;b.textContent='New checkpoint · loading';setTimeout(function(){location.reload()},2500)}}}).catch(function(){})}
+var live=/[?&]driver=latest/.test(location.search);setInterval(chk,live?10000:20000);chk();})();
 </script><style>#lotusLive{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:99;background:#0f9f92;color:#fff;border:0;border-radius:999px;
 padding:10px 18px;font:600 14px system-ui;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer}</style>"""
 LIVE_BTN = '<button id="lotusLive" hidden onclick="location.reload()">New checkpoint · reload</button>'

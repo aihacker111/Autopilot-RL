@@ -20,7 +20,9 @@ def label(run, base, spec):
     """short button label, full name and description for one checkpoint file"""
     rname, steps = os.path.basename(os.path.normpath(run)), spec.get('steps', 0)
     if spec.get('type') == 'tdmpc':
-        return 'TD-MPC2', 'world model (TD-MPC2)', 'Policy prior of the TD-MPC2 world model. In training it plans with its learned model of the world; here it drives with the prior alone.'
+        k = f" {steps // 1000}k" if steps else ""
+        after = f" after {steps // 1000}k training steps" if steps else ""
+        return 'TD-MPC2' + k, 'world model (TD-MPC2)' + k, f"Policy prior of the TD-MPC2 world model{after}. In training it plans with its learned model of the world; here it drives with the prior alone."
     if base.startswith('student'):
         return 'Student', 'distilled student', 'Neural network distilled from the look-ahead teacher (DAgger).'
     gen = re.findall(r'ft_g(\d+)', rname)
@@ -54,7 +56,7 @@ def collect(runs, keep=4):
         if os.path.exists(os.path.join(run, 'log.json')):
             try: L = json.load(open(os.path.join(run, 'log.json')))
             except (OSError, ValueError): L = None
-            if L and 'ok' in L[0]: log = [{k: r[k] for k in ('steps', 'ok', 'crash', 'red')} for r in L]
+            if L and 'ok' in L[0]: log = [{k: r.get(k, 0) for k in ('steps', 'ok', 'crash', 'red')} for r in L if 'ok' in r]
     return ({'ckpts': ck[-keep:], 'log': log or []} if ck else None), len(ck)
 
 
