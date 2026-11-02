@@ -5,7 +5,8 @@
   const $ = (id) => document.getElementById(id);
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const ppm = Math.round(Math.min(14, Math.max(10, 7 * dpr)));
-  let citySeed = 7, map, layers, sim, env;
+  let citySeed = 7, preset = "region", map, layers, sim, env, city = null, cityOv = null, centre = null, loadingMap = false;
+  let qMap = null; try { qMap = new URLSearchParams(location.search).get("map"); if (qMap && PRESET_NAMES.includes(qMap)) preset = qMap; } catch (e) {}
   const AV = typeof AV_DATA !== "undefined" ? AV_DATA : null;
 
   /* ---------- drivers for the self-driving car */
@@ -16,15 +17,37 @@
   let drv = 0, curObs = null, lastAct = [0, 0], tally = null, crashMark = null, seeing = false;
   try { if (new URLSearchParams(location.search).get("driver") === "latest" && drivers.length > 2) drv = drivers.length - 1; } catch (e) {}   // training monitor: start on the newest network
 
+  /* Ho Chi Minh City: the index and an overview are fetched once; each window fetches the tiles it needs */
+  async function loadCityData() {
+    try {
+      const r = await fetch("hcm/index.json"); if (!r.ok) throw new Error(r.status);
+      city = new HcmCity(await r.json()); setHcmCity(city);
+      fetch("hcm/overview.json").then((q) => q.json()).then((o) => { cityOv = o; mini.dirty = true; }).catch(() => {});
+      return true;
+    } catch (e) { const o = $("optHcm"); if (o) { o.disabled = true; o.textContent = "Ho Chi Minh City (needs a web server)"; } return false; }
+  }
+  async function openPlace(x, y, seed) {
+    if (!city || loadingMap) return; loadingMap = true; $("loading").hidden = false;
+    try { await city.ensure(x, y, 700); centre = [x, y]; preset = "hcm"; $("preset").value = "hcm"; newCity(seed ?? citySeed); } finally { loadingMap = false; $("loading").hidden = true; }
+  }
+  async function randomPlace(seed) { if (!city) return; const r = rngFrom(seed * 7 + 1); const keys = Object.keys(city.index.tiles).filter((k) => city.index.tiles[k].j > 400), k = keys[Math.floor(r() * keys.length)];
+    const [i, j] = k.split("_").map(Number); await city.ensure((i + 0.5) * city.T, (j + 0.5) * city.T, city.T / 2); const c = city.randomCentre(r); await openPlace(c[0], c[1], seed); }
   function newCity(seed) {
     citySeed = seed;
-    map = cityMap(seed, { nx: 3, ny: 3, name: "Sample district" });
+    map = preset === "hcm" ? cityMap(seed, { preset, centre }) : cityMap(seed, { preset });
+    const isReal = preset === "hcm"; $("searchBox").hidden = !isReal; $("attrib").hidden = !isReal; $("miniTabs").hidden = !isReal;
+    if (isReal) {
+      const d = new Date(map.city.stamp);
+      $("attrib").textContent = `Map data © OpenStreetMap contributors (ODbL), as of ${d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}. Roads, one-way streets, turn bans, signals, bridges and rail are real; traffic is simulated.`;
+      $("brandP").textContent = "Ho Chi Minh City from OpenStreetMap: real streets and alleys, one-way streets, turn bans, signals, flyovers, the railway and Metro line 1. The car with the teal outline drives itself.";
+    }
     layers = new CityLayers(map, seed * 3 + 1, ppm, 80, W < 680 ? 10 : 16);
-    sim = new Sim(map, seed, +$("density").value);
+    sim = new Sim(map, seed, +$("density").value * (preset === "region" ? 0.8 : 1), { warmup: preset === "hcm" ? 150 : 400 });
     env = new EgoEnv({ sim, reseedEvery: 0, seed: seed + 100 });
     curObs = env.reset();
-    const sig = map.juncs.filter((j) => j.type === "signal").length, t3 = map.juncs.filter((j) => Object.keys(j.arms).length === 3).length;
-    $("cityTag").lastChild.nodeValue = `District #${seed} · ${map.juncs.length} junctions · ${sig} signals`;
+    const real = map.nodes.filter((j) => j.type !== "bend"), sig = real.filter((j) => j.type === "signal").length;
+    const named = preset === "hcm" ? (map.nodes.filter((j) => j.name).sort((a, b) => Math.hypot(a.x - map.centre[0], a.y - map.centre[1]) - Math.hypot(b.x - map.centre[0], b.y - map.centre[1]))[0] || {}).name : null;
+    $("cityTag").lastChild.nodeValue = preset === "hcm" ? `${named || "HCMC"} · ${real.length} junctions · ${sig} signals` : `${map.name} #${seed} · ${real.length} junctions · ${sig} signals`;
     tally = { ok: 0, crash: 0, red: 0, timeout: 0, hit: 0, n: 0, tOk: 0 };
     updateTally(); speedHist.length = 0; mini.dirty = true;
     if (env.ego) { cam.x = env.ego.x; cam.y = env.ego.y; }
@@ -54,7 +77,25 @@
   function setDensity(d) { if (sim) sim.density = d; $("densName").textContent = densNames.find(([t]) => d <= t)[1]; }
   $("density").oninput = (e) => setDensity(+e.target.value);
   $("fit").onclick = () => { stopFollowing(); const B = map.bounds; animateCam((B.x0 + B.x1) / 2, (B.y0 + B.y1) / 2, Math.min(W / (B.x1 - B.x0), H / (B.y1 - B.y0)) * 1.02); };
-  $("newCity").onclick = () => { newCity(citySeed + 1); };
+  $("newCity").onclick = () => { if (preset === "hcm") randomPlace(citySeed + 1); else newCity(citySeed + 1); };
+  $("preset").value = preset;
+  $("preset").onchange = (e) => { if (e.target.value === "hcm") { randomPlace(citySeed); return; } preset = e.target.value; newCity(citySeed); const B = map.bounds; if (!followEgo) animateCam((B.x0 + B.x1) / 2, (B.y0 + B.y1) / 2, cam.z); };
+  // place search (accents optional): junctions first
+  const placeRes = $("placeRes");
+  $("placeQ").oninput = (e) => {
+    placeRes.innerHTML = ""; if (!city) return;
+    const seen = []; for (const p of city.findPlace(e.target.value)) {
+      if (seen.some((q) => q.name === p.name && Math.hypot(q.x - p.x, q.y - p.y) < 250)) continue; seen.push(p);
+      const b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "option");
+      b.innerHTML = `<b></b><span></span>`; b.firstChild.textContent = p.name; b.lastChild.textContent = { junction: "junction", station: "station", stop: "stop", suburb: "area", quarter: "area", neighbourhood: "area", aerodrome: "airport" }[p.kind] || "place";
+      b.onclick = () => { placeRes.innerHTML = ""; $("placeQ").value = p.name; openPlace(p.x, p.y); };
+      placeRes.appendChild(b);
+    }
+  };
+  $("placeQ").onkeydown = (e) => { if (e.key === "Enter" && placeRes.firstChild) placeRes.firstChild.click(); if (e.key === "Escape") placeRes.innerHTML = ""; };
+  let miniCity = false;
+  const setMiniTab = (c) => { miniCity = c; $("tabArea").setAttribute("aria-pressed", String(!c)); $("tabCity").setAttribute("aria-pressed", String(c)); mini.dirty = true; };
+  $("tabArea").onclick = () => setMiniTab(false); $("tabCity").onclick = () => setMiniTab(true);
   window.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") return;
     if (e.code === "Space") { e.preventDefault(); setPaused(!paused); }
@@ -92,38 +133,72 @@
     if (!followEgo && !follow) { cam.x += wx - nx; cam.y += wy - ny; }
     clampCam();
   }, { passive: false });
-  function pickAt(x, y) { let best = null, bd = 2.2; for (const v of sim.vehicles) { const d = Math.hypot(v.x - x, v.y - y) - (v.T.l / 2) * 0.6; if (d < bd) { bd = d; best = v; } } return best; }
+  function pickAt(x, y) { let best = null, bd = 2.2; for (const v of [...sim.vehicles, ...sim.agents]) { if (v.static) continue; const d = Math.hypot(v.x - x, v.y - y) - (v.T.l / 2) * 0.6; if (d < bd) { bd = d; best = v; } } return best; }
   function hover(e) { const [wx, wy] = toWorld(e.clientX, e.clientY); stage.classList.toggle("hot", !!pickAt(wx, wy)); }
   let hintGone = false; function hideHint() { if (hintGone) return; hintGone = true; $("hint").style.opacity = 0; }
   setTimeout(hideHint, 9000);
 
   /* ---------- minimap: the whole city, junction lights, the car, and the camera window */
+  const cityBox = () => ({ x0: -26000, y0: -32000, x1: 30000, y1: 30000 });
   mini.cv.addEventListener("click", (e) => {
+    if (miniCity && preset === "hcm") {
+      const b = mini.cv.getBoundingClientRect(), B = cityBox(), s = Math.min(b.width / (B.x1 - B.x0), b.height / (B.y1 - B.y0));
+      const x = B.x0 + (e.clientX - b.left - (b.width - (B.x1 - B.x0) * s) / 2) / s, y = B.y0 + (e.clientY - b.top - (b.height - (B.y1 - B.y0) * s) / 2) / s;
+      city.ensure(x, y, 700).then(() => { const c = nearestJunction(x, y); setMiniTab(false); openPlace(c[0], c[1]); }); return;
+    }
     const b = mini.cv.getBoundingClientRect(), B = map.bounds, s = Math.min(b.width / (B.x1 - B.x0), b.height / (B.y1 - B.y0));
     const x = B.x0 + (e.clientX - b.left - (b.width - (B.x1 - B.x0) * s) / 2) / s, y = B.y0 + (e.clientY - b.top - (b.height - (B.y1 - B.y0) * s) / 2) / s;
     stopFollowing(); animateCam(x, y, Math.max(cam.z, fitZoom()));
   });
+  function nearestJunction(x, y) { let best = [x, y], bd = 1e18; for (const k of city.keys(x - 700, y - 700, x + 700, y + 700)) { const t = city.tile(k); if (t) for (const j of t.J) { if (j.t === "end" || j.t === "bend") continue; const d = (j.x - x) ** 2 + (j.y - y) ** 2 - (j.t === "signal" ? 4e4 : 0); if (d < bd) { bd = d; best = [j.x, j.y]; } } } return best; }
+  function drawCityMini() {   // the whole city: main roads, rivers, rail; the current window as a box
+    const c = mini.cv, w = c.clientWidth, h = c.clientHeight, m = c.getContext("2d"), B = cityBox(), s = Math.min(w / (B.x1 - B.x0), h / (B.y1 - B.y0)), ox = (w - (B.x1 - B.x0) * s) / 2, oy = (h - (B.y1 - B.y0) * s) / 2;
+    const X = (x) => ox + (x - B.x0) * s, Y = (y) => oy + (y - B.y0) * s;
+    if (mini.dirty || !mini.cityBase) {
+      const base = document.createElement("canvas"); base.width = c.width; base.height = c.height; const b = base.getContext("2d"); b.setTransform(dpr, 0, 0, dpr, 0, 0);
+      b.fillStyle = "#c9c3b5"; b.fillRect(0, 0, w, h);
+      const line = (a) => { b.beginPath(); for (let i = 0; i < a.length; i += 2) i ? b.lineTo(X(a[i] / 10), Y(a[i + 1] / 10)) : b.moveTo(X(a[0] / 10), Y(a[1] / 10)); };
+      if (cityOv) {
+        b.strokeStyle = "#7fb0c8"; b.fillStyle = "#7fb0c8"; for (const [wd, a] of cityOv.water) { line(a); if (wd) { b.lineWidth = Math.max(0.6, wd * s); b.stroke(); } else b.fill(); }
+        for (const [cls, a] of cityOv.roads) { b.strokeStyle = cls === "highway" ? "#d9822b" : cls === "avenue" ? "#e0a03a" : cls === "main" ? "#6a6f75" : "#8d9095"; b.lineWidth = cls === "highway" || cls === "avenue" ? 1.1 : cls === "main" ? 0.7 : 0.35; line(a); b.stroke(); }
+        b.strokeStyle = "#2f5d9a"; b.lineWidth = 1; for (const [k, a] of cityOv.rails) { b.setLineDash(k === "metro" ? [] : [2, 1.5]); line(a); b.stroke(); } b.setLineDash([]);
+      } else { b.fillStyle = "#555"; b.font = "12px sans-serif"; b.fillText("Loading city overview…", 10, 20); }
+      mini.cityBase = base; mini.dirty = false;
+    }
+    m.setTransform(1, 0, 0, 1, 0, 0); m.clearRect(0, 0, c.width, c.height); m.drawImage(mini.cityBase, 0, 0); m.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const Bw = map.bounds; m.strokeStyle = "#16b5a6"; m.lineWidth = 2; m.strokeRect(X(Bw.x0), Y(Bw.y0), Math.max(3, (Bw.x1 - Bw.x0) * s), Math.max(3, (Bw.y1 - Bw.y0) * s));
+    m.fillStyle = "rgba(30,35,39,.7)"; m.font = "600 10px sans-serif"; m.fillText("Click to drive there", 8, h - 8);
+  }
   function drawMini() {
     const c = mini.cv, w = c.clientWidth, h = c.clientHeight; if (!w) return;
     if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); mini.dirty = true; }
+    if (miniCity && preset === "hcm") return drawCityMini();
     const m = c.getContext("2d"), B = map.bounds, s = Math.min(w / (B.x1 - B.x0), h / (B.y1 - B.y0)), ox = (w - (B.x1 - B.x0) * s) / 2, oy = (h - (B.y1 - B.y0) * s) / 2;
     const X = (x) => ox + (x - B.x0) * s, Y = (y) => oy + (y - B.y0) * s;
     if (mini.dirty) {
       const base = document.createElement("canvas"); base.width = c.width; base.height = c.height;
       const b = base.getContext("2d"); b.setTransform(dpr, 0, 0, dpr, 0, 0);
-      b.fillStyle = "#b7b0a2"; b.fillRect(X(B.x0), Y(B.y0), (B.x1 - B.x0) * s, (B.y1 - B.y0) * s);
-      b.fillStyle = "#8c867a"; for (const hs of layers.F.houses) b.fillRect(X(hs.x), Y(hs.y), Math.max(0.6, hs.w * s), Math.max(0.6, hs.h * s));
-      b.fillStyle = "#cdc6b8"; for (const q of layers.F.walks) b.fillRect(X(q.x0), Y(q.y0), (q.x1 - q.x0) * s, (q.y1 - q.y0) * s);
-      b.fillStyle = "#4a4e53"; for (const q of layers.F.roads) b.fillRect(X(q.x0), Y(q.y0), (q.x1 - q.x0) * s, (q.y1 - q.y0) * s);
+      b.fillStyle = "#b3ad9c"; b.fillRect(X(B.x0), Y(B.y0), (B.x1 - B.x0) * s, (B.y1 - B.y0) * s);
+      const LANDC = { urban: "#b7b0a2", industrial: "#aaa79f", rural: "#8fa564", forest: "#5d7a45" };
+      for (const ar of map.areas) { b.fillStyle = LANDC[ar.kind] || "#b3ad9c"; b.fillRect(X(ar.x0), Y(ar.y0), (ar.x1 - ar.x0) * s, (ar.y1 - ar.y0) * s); }
+      const shape = (o) => { b.beginPath(); if (o.disk) b.arc(X(o.disk[0]), Y(o.disk[1]), o.disk[2] * s, 0, 6.3); else { b.moveTo(X(o.poly[0][0]), Y(o.poly[0][1])); for (const p of o.poly) b.lineTo(X(p[0]), Y(p[1])); b.closePath(); } b.fill(); };
+      b.fillStyle = "#7fb0c8"; for (const q of layers.F.water) { if (q.poly) shape(q); else { b.strokeStyle = "#7fb0c8"; b.lineWidth = Math.max(0.8, q.w * s); b.beginPath(); q.pts.forEach((p, i) => i ? b.lineTo(X(p[0]), Y(p[1])) : b.moveTo(X(p[0]), Y(p[1]))); b.stroke(); } }
+      b.fillStyle = "#8c867a"; for (const h of layers.F.houses) { const P = h.b.osm ? h.b.poly : h.corners; b.beginPath(); P.forEach((p, i) => i ? b.lineTo(X(p[0]), Y(p[1])) : b.moveTo(X(p[0]), Y(p[1]))); b.closePath(); b.fill(); }
+      b.fillStyle = "#cdc6b8"; for (const q of layers.F.walks) shape(q);
+      for (const q of layers.F.roads) { b.fillStyle = q.c === "#8f8b83" || q.c === "#97928a" ? "#7d7a74" : "#4a4e53"; shape(q); }
+      for (const q of layers.F.decks) { b.fillStyle = "#5c6066"; shape(q); }
+      b.strokeStyle = "#6b5a4a"; b.lineWidth = 1.2; for (const R of map.rails) { b.beginPath(); R.pts.forEach((p, i) => i ? b.lineTo(X(p[0]), Y(p[1])) : b.moveTo(X(p[0]), Y(p[1]))); b.stroke(); }
       mini.base = base; mini.dirty = false;
     }
     m.setTransform(1, 0, 0, 1, 0, 0); m.clearRect(0, 0, c.width, c.height); m.drawImage(mini.base, 0, 0);
     m.setTransform(dpr, 0, 0, dpr, 0, 0);
     m.fillStyle = "rgba(255,230,160,.55)"; for (const v of sim.vehicles) if (!v.ego) m.fillRect(X(v.x) - 0.6, Y(v.y) - 0.6, 1.2, 1.2);
-    for (const jn of map.juncs) {
-      const lE = sim.light(jn.id, jn.arms.E ? "E" : "W"), col = !lE ? "#d8d3c4" : lE.c === "G" ? "#2ee66b" : lE.c === "Y" ? "#ffc21a" : "#ff4a3d";
-      m.fillStyle = col; m.beginPath(); m.arc(X(jn.x), Y(jn.y), 2.6, 0, 6.3); m.fill(); m.strokeStyle = "rgba(0,0,0,.5)"; m.lineWidth = 0.8; m.stroke();
+    for (const jn of map.nodes) {
+      if (jn.type === "bend") continue;
+      const lE = sim.light(jn.id, jn.order[0]), col = !lE ? (jn.type === "roundabout" ? "#9ad0f0" : "#d8d3c4") : lE.c === "G" ? "#2ee66b" : lE.c === "Y" ? "#ffc21a" : "#ff4a3d";
+      m.fillStyle = col; m.beginPath(); m.arc(X(jn.x), Y(jn.y), jn.type === "uturn" ? 1.6 : 2.6, 0, 6.3); m.fill(); m.strokeStyle = "rgba(0,0,0,.5)"; m.lineWidth = 0.8; m.stroke();
     }
+    m.fillStyle = "#2f5d9a"; for (const a of sim.agents) if (a.kind === "train") m.fillRect(X(a.x) - 2, Y(a.y) - 2, 4, 4);
     if (env.ego) {
       const e = env.ego; m.strokeStyle = "rgba(34,200,185,.95)"; m.lineWidth = 2; m.beginPath();
       e.route.forEach((r, k) => { if (k < e.legs - 1) return; const p = sim.path(r.j, r.from, r.to); for (let i = k === e.legs - 1 ? Math.floor(e.s / p.ds) : 0; i < p.n; i += 6) m.lineTo(X(p.X[i]), Y(p.Y[i])); });
@@ -133,9 +208,10 @@
   }
 
   /* ---------- inspector */
-  const TYPE_NAME = { moto: "Motorbike", bike: "Bicycle", car: "Car", taxi: "Taxi", bus: "Bus", truck: "Truck" };
-  const ARM_NAME = { E: "the east", W: "the west", N: "the north", S: "the south" };
-  const KIND = { straight: "going straight", left: "turning left", right: "turning right" };
+  const TYPE_NAME = { moto: "Motorbike", bike: "Bicycle", car: "Car", taxi: "Taxi", bus: "Bus", truck: "Truck", tractor: "Farm tractor", ped: "Pedestrian", buffalo: "Water buffalo", train: "Train", parked: "Parked car", stall: "Market stall", stalled: "Stalled motorbike" };
+  const armName = (id) => "the " + (COMPASS_NAME[String(id).replace(/\d+$/, "")] || id);
+  const KIND = { straight: "going straight", left: "turning left", right: "turning right", uturn: "making a U-turn" };
+  const NODE_NAME = { signal: "signalised junction", yield: "junction", priority: "side-road junction", roundabout: "roundabout", uturn: "U-turn opening", rail: "level crossing", bend: "bend" };
   const traits = [["aggr", "Risk-taking", (v) => v.aggr], ["patience", "Patience", (v) => v.patience], ["comply", "Rule-abiding", (v) => v.comply], ["speed", "Likes speed", (v) => (v.speedPref - 0.8) / 0.45]];
   const egoBars = [["spd", "Target speed", () => (lastAct[0] + 1) / 2], ["lat", "Lane position", () => (lastAct[1] + 1) / 2]];
   function buildTraits(list) { $("iTraits").innerHTML = list.map(([k, n]) => `<div class="trait"><span>${n}</span><span class="bar"><b id="t_${k}"></b></span><span class="num" id="tn_${k}"></span></div>`).join(""); }
@@ -144,6 +220,7 @@
     sel = v; $("insp").hidden = !v; document.body.classList.toggle("inspecting", !!v);
     if (!v) { follow = false; $("iFollow").setAttribute("aria-pressed", "false"); return; }
     if (v.ego) { $("iName").textContent = "Self-driving car · " + drivers[drv].name; buildTraits(egoBars); $("iTraitsLbl").textContent = "Current command"; $("iFollow").hidden = true; }
+    else if (v.agent) { $("iName").textContent = TYPE_NAME[v.kind] || v.kind; $("iTraits").innerHTML = ""; $("iTraitsLbl").textContent = v.kind === "ped" ? (v.jay ? "Crosses without waiting for a gap" : "Waits for a gap to cross") : v.kind === "buffalo" ? "Ambles along the verge, sometimes wanders across" : "Runs on a timetable; the barriers close for it"; $("iFollow").hidden = false; }
     else {
       const extra = v.type === "moto" ? (v.delivery ? " · delivery" : v.passenger ? " · with passenger" : v.cargo === "gas" ? " · carrying gas cylinders" : v.cargo ? " · carrying goods" : "") : "";
       $("iName").textContent = TYPE_NAME[v.type] + extra; buildTraits(traits); fillTraits(traits, v); $("iTraitsLbl").textContent = "Personality (fixed at spawn)"; $("iFollow").hidden = false;
@@ -154,14 +231,23 @@
   $("iFollow").onclick = () => { follow = !follow; $("iFollow").setAttribute("aria-pressed", String(follow)); if (follow && sel) { followEgo = false; $("avFollow").setAttribute("aria-pressed", "false"); animateCam(sel.x, sel.y, Math.max(cam.z, fitZoom() * 1.6)); } };
   function updateInspector() {
     if (!sel) return;
-    $("iRoute").textContent = `Junction ${sel.path.junc + 1} · from ${ARM_NAME[sel.path.from]} · ${KIND[sel.path.kind]}`;
+    if (sel.agent) {
+      $("iRoute").textContent = sel.kind === "ped" ? (sel.mode === "walk" ? "Walking along the " + (map.walks[sel.walk].onRoad ? "road edge" : "sidewalk") : sel.mode === "wait" ? "Waiting to cross" : "Crossing the road") : sel.kind === "buffalo" ? (sel.graze > 0 ? "Grazing" : sel.cross ? "Wandering across the road" : "Walking along the verge") : "Passing through";
+      $("iSpeed").textContent = Math.round(sel.v * 3.6) + " km/h"; $("iWait").textContent = Math.round(sel.wait || 0) + " s";
+      const st = $("iState"); st.className = "state " + (sel.v > 0.2 ? "go" : "wait"); st.lastElementChild.textContent = sel.v > 0.2 ? "Moving" : "Standing";
+      return;
+    }
+    const jn0 = map.nodes[sel.path.junc];
+    $("iRoute").textContent = `${NODE_NAME[jn0.type][0].toUpperCase() + NODE_NAME[jn0.type].slice(1)} ${sel.path.junc + 1} · from ${armName(sel.path.from)} · ${KIND[sel.path.kind]}`;
     $("iSpeed").textContent = Math.round(sel.v * 3.6) + " km/h"; $("iWait").textContent = Math.round(sel.wait) + " s";
     const L = sel.path.signal ? sim.light(sel.path.junc, sel.path.from) : null;
     let cls = "go", txt = "Moving";
     if (sel.ghostUntil > sim.t) { cls = "wait"; txt = "Squeezing through"; }
     else if ((sel.ego ? env.redLegs && env.redLegs.size : sel.ranRed) && sel.s < sel.path.sOut + 5) { cls = "stop"; txt = "Running a red"; }
     else if (sel.v < 0.3 && sel.honk > 0) { cls = "wait"; txt = "Honking"; }
-    else if (sel.v < 0.3) { cls = "wait"; txt = sel.s < sel.path.sIn && L && L.c !== "G" ? "Waiting at light" : !sel.path.signal && sel.s < sel.path.sIn + 2 && sel.s > sel.path.sStop - 4 ? "Yielding" : "Stuck in traffic"; }
+    else if (sel.v < 0.3 && sel.dwell > sim.t) { cls = "wait"; txt = "At the bus stop"; }
+    else if (sel.v < 0.3) { cls = "wait"; txt = sel.s < sel.path.sIn && L && L.c !== "G" ? (sel.path.rail ? "Waiting for the train" : "Waiting at light") : !sel.path.signal && sel.s < sel.path.sIn + 2 && sel.s > sel.path.sStop - 4 ? "Yielding" : "Stuck in traffic"; }
+    else if (sel.overtake > sim.t) { cls = "wait"; txt = "Going round an obstacle"; }
     else if (sel.braking) { cls = "wait"; txt = "Braking"; }
     const st = $("iState"); st.className = "state " + cls; st.lastElementChild.textContent = txt;
     if (sel.ego) fillTraits(egoBars, sel);
@@ -201,7 +287,7 @@
       toast(info.result === "crash" ? `Crashed into a ${u ? TYPE_NAME[u.type].toLowerCase() : "vehicle"} after ${t} s` : `Hit by a ${u ? TYPE_NAME[u.type].toLowerCase() : "vehicle"} (not the self-driving car's fault)`, info.result === "crash" ? "stop" : "wait");
     }
     else if (info.result === "red") toast("Ran a red light, episode over", "stop");
-    else toast("Stuck for 2 minutes, episode skipped", "wait");
+    else toast("Ran out of time, episode skipped", "wait");
     updateTally();
   }
   function drawCurve() {
@@ -223,15 +309,15 @@
   /* ---------- one tick = one decision of the car (2 simulation steps) */
   const stepLen = DT * ENV.REPEAT;
   function tick() {
-    const snap = new Map(); for (const v of sim.vehicles) snap.set(v, [v.x, v.y, v.h]);
+    const snap = new Map(); for (const v of sim.vehicles) snap.set(v, [v.x, v.y, v.h]); for (const a of sim.agents) if (!a.static) snap.set(a, [a.x, a.y, a.h]);
     lastAct = drivers[drv].act(env);
     const r = env.step(lastAct); curObs = r.obs;
     if (r.done) { const old = env.ego; onEpisodeEnd(r.info); curObs = env.reset(); if (sel === old) select(env.ego); }
-    for (const v of sim.vehicles) { const s = snap.get(v); if (s) { v.px = s[0]; v.py = s[1]; v.ph = s[2]; } else { v.px = v.x; v.py = v.y; v.ph = v.h; } }
+    for (const v of [...sim.vehicles, ...sim.agents]) { if (v.static) continue; const s = snap.get(v); if (s) { v.px = s[0]; v.py = s[1]; v.ph = s[2]; } else { v.px = v.x; v.py = v.y; v.ph = v.h; } }
   }
 
   /* ---------- HUD */
-  const MIX_ORDER = ["moto", "car", "taxi", "bus", "truck", "bike"];
+  const MIX_ORDER = ["moto", "car", "taxi", "bus", "truck", "bike", "tractor"];
   $("mix").innerHTML = MIX_ORDER.map((t) => `<div class="mixrow"><span>${TYPE_NAME[t]}</span><span class="bar"><b id="m_${t}"></b></span><span class="num" id="mn_${t}">0</span></div>`).join("");
   const spark = $("spark"), sg = spark.getContext("2d");
   function drawSpark() {
@@ -249,7 +335,7 @@
     sg.fillStyle = ink; sg.beginPath(); sg.arc(X(speedHist.length - 1) - 2, Y(speedHist[speedHist.length - 1]), 3, 0, 6.3); sg.fill();
   }
   let hudT = 0, honkLog = [], lastHonks = 0;
-  function nearestJunction(x, y) { let best = map.juncs[0], bd = 1e9; for (const j of map.juncs) { const d = (j.x - x) ** 2 + (j.y - y) ** 2; if (d < bd) { bd = d; best = j; } } return best; }
+  function nearestJunction(x, y) { let best = map.nodes[0], bd = 1e9; for (const j of map.nodes) { if (j.type === "bend") continue; const d = (j.x - x) ** 2 + (j.y - y) ** 2; if (d < bd) { bd = d; best = j; } } return best; }
   function updateHud() {
     const s = sim.summary();
     $("sTotal").firstChild.nodeValue = s.total;
@@ -258,21 +344,24 @@
     $("sRed").textContent = s.redRunsPerMin; $("sNear").textContent = s.nearMissPerMin;
     const nh = sim.stats.honks - lastHonks; lastHonks = sim.stats.honks; honkLog.push([sim.t, nh]); while (honkLog.length && honkLog[0][0] < sim.t - 60) honkLog.shift();
     $("sHonk").textContent = honkLog.reduce((a, b) => a + b[1], 0);
-    for (const t of MIX_ORDER) { const c = s.counts[t] || 0; $("m_" + t).style.width = (s.total ? c / s.total * 100 : 0).toFixed(1) + "%"; $("mn_" + t).textContent = c; }
+    for (const t of MIX_ORDER) { const c = s.counts[t] || 0; $("m_" + t).style.width = (s.total ? c / s.total * 100 : 0).toFixed(1) + "%"; $("mn_" + t).textContent = c; $("m_" + t).parentElement.parentElement.hidden = t === "tractor" && !c; }
     // the junction closest to the middle of the screen
-    const jn = nearestJunction(cam.x, cam.y);
-    $("phaseJ").textContent = `Junction ${jn.id + 1}`;
-    if (jn.type !== "signal") { $("phaseName").textContent = "No signal"; $("phaseSub").textContent = "Vehicles yield to each other on entry"; $("lampMain").style.color = "var(--ink-3)"; $("phaseLeft").style.color = "var(--ink-3)"; $("phaseLeft").textContent = "–"; }
-    else {
-      const ax = jn.arms.E ? "E" : "W", ay = jn.arms.N ? "N" : "S", lE = sim.light(jn.id, ax), lN = sim.light(jn.id, ay);
-      let name, sub, c, left;
-      if (lE.c !== "R") { name = "East – West"; sub = lE.c === "G" ? "East – West is green" : "East – West turning red"; c = lE.c; left = lE.left; }
-      else if (lN.c !== "R") { name = "North – South"; sub = lN.c === "G" ? "North – South is green" : "North – South turning red"; c = lN.c; left = lN.left; }
-      else { name = "All red"; sub = "Clearing the junction"; c = "R"; left = Math.min(lE.left, lN.left); }
-      $("phaseName").textContent = name; $("phaseSub").textContent = sub;
-      const col = c === "G" ? "var(--go)" : c === "Y" ? "var(--wait)" : "var(--stop)";
-      $("lampMain").style.color = col; $("phaseLeft").style.color = col; $("phaseLeft").textContent = String(Math.ceil(left)).padStart(2, "0");
+    const jn = nearestJunction(cam.x, cam.y), grey = () => { $("lampMain").style.color = "var(--ink-3)"; $("phaseLeft").style.color = "var(--ink-3)"; $("phaseLeft").textContent = "–"; };
+    $("phaseJ").textContent = `${jn.type === "rail" ? "Crossing" : jn.type === "roundabout" ? "Roundabout" : "Junction"} ${jn.id + 1}`;
+    const names = (ids) => [...new Set(ids.map((id) => String(id).replace(/\d+$/, "")))].join(" – ");
+    let col = null, left = null;
+    if (jn.type === "signal") {
+      const ph = sim.phaseAt(jn, sim.t), p = jn.phases[ph.i];
+      if (p.allRed) { $("phaseName").textContent = "All red"; $("phaseSub").textContent = "Clearing the junction"; col = "R"; left = ph.left; }
+      else { const ids = p.green || p.yellow; $("phaseName").textContent = names(ids); $("phaseSub").textContent = p.green ? `${names(ids)} is green · ${jn.phases.length / 3} phases` : `${names(ids)} turning red`; col = p.green ? "G" : "Y"; left = ph.left; }
+    } else if (jn.type === "rail") {
+      const L = sim.light(jn.id, jn.order[0]); col = L.c; left = L.left;
+      $("phaseName").textContent = "Level crossing"; $("phaseSub").textContent = L.c === "G" ? "Barriers up" : L.c === "Y" ? "Bells ringing, barriers coming down" : "Barriers down, train passing";
+    } else {
+      const T = { roundabout: ["Roundabout", "Give way to traffic on the ring"], priority: [jn.kind === "alley" ? "Alley mouth" : "Side road", "Side traffic gives way to the main road"], uturn: ["U-turn opening", "U-turners give way to through traffic"], yield: ["No signal", "Vehicles yield to each other on entry"] }[jn.type] || ["Bend", ""];
+      $("phaseName").textContent = T[0]; $("phaseSub").textContent = T[1];
     }
+    if (col) { const c = col === "G" ? "var(--go)" : col === "Y" ? "var(--wait)" : "var(--stop)"; $("lampMain").style.color = c; $("phaseLeft").style.color = c; $("phaseLeft").textContent = String(Math.ceil(left)).padStart(2, "0"); } else grey();
     if (env.ego) {
       const e = env.ego;
       $("avRoute").textContent = `Junction ${e.legs}/${e.route.length} · ${KIND[e.path.kind]}`;
@@ -294,7 +383,7 @@
     }
     if (sel && !sim.vehicles.includes(sel)) select(null);
     if (camAnim) { camAnim.t = Math.min(1, camAnim.t + real * 2.2); const e = 1 - Math.pow(1 - camAnim.t, 3); cam.x = camAnim.x0 + (camAnim.x - camAnim.x0) * e; cam.y = camAnim.y0 + (camAnim.y - camAnim.y0) * e; cam.z = camAnim.z0 + (camAnim.z - camAnim.z0) * e; if (camAnim.t >= 1) camAnim = null; }
-    const a = paused ? 1 : Math.min(1, acc / stepLen);
+    const a = paused ? 1 : Math.min(1, acc / stepLen), a_ = a, trainsVis = [];
     const tgt = follow && sel ? sel : followEgo && env.ego ? env.ego : null;
     if (tgt && !camAnim) { const k = 1 - Math.exp(-real * 4); cam.x += (tgt.x - cam.x) * k; cam.y += (tgt.y - cam.y) * k; }
     clampCam();
@@ -304,7 +393,7 @@
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
     const vx0 = cam.x - W / 2 / cam.z, vx1 = cam.x + W / 2 / cam.z, vy0 = cam.y - H / 2 / cam.z, vy1 = cam.y + H / 2 / cam.z;
     layers.draw(g, "ground", vx0, vy0, vx1, vy1, 2);
-    const vis = [], pos = new Map(), m = 12;
+    const vis = [], pos = new Map(), m = 12; let overDone = false;
     for (const v of sim.vehicles) {
       let x = v.x, y = v.y, h = v.h;
       if (Math.hypot(v.x - v.px, v.y - v.py) < 6) { x = v.px + (v.x - v.px) * a; y = v.py + (v.y - v.py) * a; h = lerpAng(v.ph, v.h, a); }
@@ -330,35 +419,79 @@
       g.save(); g.strokeStyle = "rgba(255,214,70,.85)"; g.lineWidth = 0.22; g.setLineDash([0.8, 0.6]); g.lineCap = "round";
       g.beginPath(); for (let i = i0; i < p.n; i += 2) { const X = p.X[i] - p.TY[i] * sel.d, Y = p.Y[i] + p.TX[i] * sel.d; i === i0 ? g.moveTo(X, Y) : g.lineTo(X, Y); } g.stroke(); g.restore();
     }
-    for (const [v, x, y, h] of vis) drawShadow(g, v, x, y, h);
-    vis.sort((p, q) => (p[0].T.l > 3 ? 1 : 0) - (q[0].T.l > 3 ? 1 : 0));
-    for (const [v, x, y, h] of vis) drawVehicle(g, v, x, y, h, sim.t);
-    for (const [v, x, y] of vis) if (v.honk > 0) drawHonk(g, v, x, y, sim.t);
+    for (const a of sim.agents) {
+      if (a.static) continue;
+      let x = a.x, y = a.y, h = a.h;
+      if (Math.hypot(a.x - a.px, a.y - a.py) < 6) { x = a.px + (a.x - a.px) * a_; y = a.py + (a.y - a.py) * a_; h = lerpAng(a.ph, a.h, a_); }
+      pos.set(a, [x, y]);
+      if (x < vx0 - 20 || x > vx1 + 20 || y < vy0 - 20 || y > vy1 + 20) continue;
+      if (a.kind === "train") trainsVis.push([a, x, y, h]); else drawAgent(g, a, x, y, h, sim.t);
+    }
+    // levels: in a tunnel (only the car itself is shown, faded), on the ground, on a flyover or viaduct (drawn above its deck)
+    const low = vis.filter(([v]) => (v.z || 0) < 2.5 && ((v.z || 0) > -2.5 || v.ego)), high = vis.filter(([v]) => (v.z || 0) >= 2.5);
+    for (const [v, x, y, h] of low) drawShadow(g, v, x, y, h);
+    low.sort((p, q) => (p[0].T.l > 3 ? 1 : 0) - (q[0].T.l > 3 ? 1 : 0));
+    for (const [v, x, y, h] of low) { if ((v.z || 0) <= -2.5) g.globalAlpha = 0.45; drawVehicle(g, v, x, y, h, sim.t); g.globalAlpha = 1; }
+    for (const [v, x, y] of low) if (v.honk > 0) drawHonk(g, v, x, y, sim.t);
+    for (const [t_, x, y, h] of trainsVis) if ((t_.z || 0) < 2 && (t_.z || 0) > -2) drawAgent(g, t_, x, y, h, sim.t);
+    if (high.length || trainsVis.some(([t_]) => (t_.z || 0) >= 2)) {
+      layers.draw(g, "over", vx0, vy0, vx1, vy1, 0); overDone = true;
+      for (const [t_, x, y, h] of trainsVis) if ((t_.z || 0) >= 2) drawAgent(g, t_, x, y, h, sim.t);
+      for (const [v, x, y, h] of high) drawShadow(g, v, x, y, h);
+      for (const [v, x, y, h] of high) drawVehicle(g, v, x, y, h, sim.t);
+    }
     if (ego && seeing && env.seen) {
-      const [ex, ey] = pos.get(ego);
+      const [ex, ey] = pos.get(ego), pk = pedScale(g);
+      const ringR = (u) => u.kind === "ped" ? 0.32 * pk + 0.25 : Math.max(u.T.l, u.T.w) / 2 + 0.35;   // pedestrians are drawn larger than life
       g.save(); g.strokeStyle = "rgba(34,200,185,.5)"; g.lineWidth = 0.08; g.setLineDash([0.6, 0.5]); g.beginPath(); g.arc(ex, ey, ENV.RANGE, 0, 6.3); g.stroke(); g.setLineDash([]);
+      if (env.hidden) for (const u of env.hidden) { const q = pos.get(u) || [u.x, u.y]; g.strokeStyle = "rgba(255,90,70,.75)"; g.lineWidth = 0.08; g.setLineDash([0.4, 0.35]); g.beginPath(); g.arc(q[0], q[1], ringR(u), 0, 6.3); g.stroke(); g.setLineDash([]); }
+      if (env.sight != null && env.sight < ENV.SIGHT) { const q = env.routePoint(env.sight); g.fillStyle = "rgba(255,90,70,.85)"; g.beginPath(); g.arc(q[0], q[1], 0.6, 0, 6.3); g.fill(); g.strokeStyle = "rgba(255,90,70,.6)"; g.lineWidth = 0.1; g.beginPath(); g.moveTo(ex, ey); g.lineTo(q[0], q[1]); g.stroke(); }
       for (const u of env.seen) {
         const q = pos.get(u); if (!q) continue;
         const hot = Math.max(0, Math.min(1, 1 - sim.boxGap(ego, u) / 4));
         g.strokeStyle = `rgba(${Math.round(34 + 221 * hot)},${Math.round(200 - 130 * hot)},${Math.round(185 - 120 * hot)},${0.35 + 0.5 * hot})`; g.lineWidth = 0.06 + 0.1 * hot;
-        g.beginPath(); g.moveTo(ex, ey); g.lineTo(q[0], q[1]); g.stroke(); g.beginPath(); g.arc(q[0], q[1], Math.max(u.T.l, u.T.w) / 2 + 0.35, 0, 6.3); g.stroke();
+        g.beginPath(); g.moveTo(ex, ey); g.lineTo(q[0], q[1]); g.stroke(); g.beginPath(); g.arc(q[0], q[1], ringR(u), 0, 6.3); g.stroke();
       }
       g.restore();
     }
     if (crashMark) { const k = (now - crashMark.t) / 1600; if (k > 1) crashMark = null; else { g.strokeStyle = `rgba(255,70,55,${1 - k})`; g.lineWidth = 0.25; for (const r0 of [1.2, 2.4]) { g.beginPath(); g.arc(crashMark.x, crashMark.y, r0 + k * 3, 0, 6.3); g.stroke(); } } }
     if (sel) { const it = vis.find((q) => q[0] === sel); if (it) { const pulse = 0.5 + 0.5 * Math.sin(now / 220); g.strokeStyle = sel.ego ? `rgba(34,200,185,${0.6 + 0.4 * pulse})` : `rgba(255,214,70,${0.6 + 0.4 * pulse})`; g.lineWidth = 0.16; g.beginPath(); g.arc(it[1], it[2], sel.T.l / 2 + 0.9 + pulse * 0.2, 0, 6.3); g.stroke(); } }
-    layers.draw(g, "over", vx0, vy0, vx1, vy1, 0);
-    drawSignals(g, sim, layers.heads, vx0 - 2, vy0 - 2, vx1 + 2, vy1 + 2);
+    if (!overDone) layers.draw(g, "over", vx0, vy0, vx1, vy1, 0);
+    drawSignals(g, sim, layers, vx0 - 2, vy0 - 2, vx1 + 2, vy1 + 2);
+    drawLabels(g, vx0, vy0, vx1, vy1);
 
     hudT -= real; if (hudT <= 0) { hudT = 0.25; updateHud(); }
     miniT -= real; if (miniT <= 0) { miniT = 0.2; drawMini(); }
     requestAnimationFrame(frame);
   }
+  /* street and place names, drawn on top at a constant screen size; skipped where they would overlap */
+  function drawLabels(g, vx0, vy0, vx1, vy1) {
+    const F = layers.F; if (!F.labels || !F.labels.length || cam.z < 2.2) return;
+    const placed = [], k = 1 / cam.z;
+    g.save(); g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
+    for (const lb of F.labels) {
+      if (lb.x < vx0 || lb.x > vx1 || lb.y < vy0 || lb.y > vy1) continue;
+      if (!lb.place && !lb.major && cam.z < 5) continue;
+      const fs = lb.place ? 13 : lb.major ? 12 : 10.5, wPx = lb.name.length * fs * 0.55 + 10;
+      const sx = (lb.x - vx0) * cam.z, sy = (lb.y - vy0) * cam.z;
+      if (placed.some((q) => Math.abs(q[0] - sx) < (q[2] + wPx) / 2 && Math.abs(q[1] - sy) < fs + 4)) continue;
+      placed.push([sx, sy, wPx]);
+      g.save(); g.translate(lb.x, lb.y); g.rotate(lb.ang); g.scale(k, k);
+      g.font = `${lb.place ? 700 : 600} ${fs}px 'Be Vietnam Pro', system-ui, sans-serif`;
+      g.strokeStyle = lb.place ? "rgba(255,255,255,.92)" : "rgba(28,30,33,.78)"; g.lineWidth = 3.5; g.strokeText(lb.name, 0, 0);
+      g.fillStyle = lb.place ? "#1e2327" : "#f4f1e8"; g.fillText(lb.name, 0, 0);
+      g.restore();
+    }
+    g.restore();
+  }
   setDensity(+$("density").value);
+  if (qMap === "hcm" || !qMap) {   // start in Ho Chi Minh City when its data can be fetched, else on a generated map
+    loadCityData().then((ok) => { if (ok) { const qs = new URLSearchParams(location.search), want = qs.get("place"), at = qs.get("at"); if (at) { const [x, y] = at.split(",").map(Number); openPlace(x, y); return; } const hit = want && city.findPlace(want)[0]; const st = hit || city.findPlace("Ngã tư Bảy Hiền")[0]; if (st) openPlace(st.x, st.y); } });
+  }
   newCity(citySeed);
   setDriver(drv);
   cam.z = fitZoom();
   updateHud(); drawCurve();
   requestAnimationFrame(frame);
-  window.__nta = { sim: () => sim, env: () => env, cam, select, setSpeed, setPaused, setDriver, newCity };
+  window.__nta = { sim: () => sim, env: () => env, map: () => map, cam, select, setSpeed, setPaused, setDriver, newCity, look: (x, y, z) => { stopFollowing(); cam.x = x; cam.y = y; if (z) cam.z = z; } };
 })();

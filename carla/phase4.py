@@ -21,13 +21,14 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--teacher", required=True); p.add_argument("--rounds", type=int, default=4); p.add_argument("--episodes", type=int, default=40)
     p.add_argument("--eval-episodes", type=int, default=30); p.add_argument("--encoder", default="dinov3"); p.add_argument("--epochs", type=int, default=30)
-    p.add_argument("--map-seed", type=int, default=7); p.add_argument("--nx", type=int, default=3); p.add_argument("--ny", type=int, default=3)
+    p.add_argument("--map-seed", type=int, default=7); p.add_argument("--preset", default="hcm", help="kind of map: hcm (real Ho Chi Minh City), or region, city, alley, roundabout, highway, rail, rural, pass")
+    p.add_argument("--place", default="Ngã tư Bảy Hiền", help="with --preset hcm: which part of the city")
     p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=2000)
     p.add_argument("--device", default="cuda"); p.add_argument("--dry-run", action="store_true")
     p.add_argument("--out", default=os.path.join(HERE, "..", "rl", "runs", "phase4"))
     a = p.parse_args()
     data = os.path.join(a.out, "data"); os.makedirs(data, exist_ok=True)
-    common = ["--teacher", a.teacher, "--map-seed", str(a.map_seed), "--nx", str(a.nx), "--ny", str(a.ny), "--host", a.host, "--port", str(a.port), "--device", a.device, "--out-dir", a.out] + (["--dry-run"] if a.dry_run else [])
+    common = ["--teacher", a.teacher, "--map-seed", str(a.map_seed), "--preset", a.preset, "--place", a.place, "--host", a.host, "--port", str(a.port), "--device", a.device, "--out-dir", a.out] + (["--dry-run"] if a.dry_run else [])
     py = sys.executable; prev = None; log = []
     for r in range(a.rounds):
         coll = [py, os.path.join(HERE, "bridge.py"), "collect", "--data", data, "--episodes", str(a.episodes), "--seed", str(100 + r), "--result", os.path.join(a.out, f"collect_r{r}.json")] + common

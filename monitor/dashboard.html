@@ -123,7 +123,7 @@ td .neg { color: var(--bad); } td .pos { color: var(--good); }
 .tblwrap { overflow-x: auto; }
 
 /* heatmap */
-.heat { display: grid; grid-template-columns: 92px repeat(6, minmax(0, 1fr)); gap: 2px; font-size: 11.5px; }
+.heat { display: grid; grid-template-columns: 92px repeat(7, minmax(0, 1fr)); gap: 2px; font-size: 11.5px; }
 .heat .c { aspect-ratio: 1.6; border-radius: 4px; background: var(--surface-2); border: 1px dashed var(--line); display: grid; place-items: center; font: 600 11px var(--f); color: transparent; cursor: default; }
 .heat .c.f { border: 0; }
 .heat .c.f.lt { color: #0b0b0b; } .heat .c.f.dk { color: #fff; }
@@ -216,7 +216,7 @@ pre.log { margin: 0; max-height: 360px; overflow: auto; background: var(--surfac
     </div>
     <div class="card">
       <h2>Archive coverage</h2>
-      <p class="sub">Share of the 5 × 6 grid holding a scenario, after each search batch.</p>
+      <p class="sub">Share of the 5 × 7 grid holding a scenario, after each search batch.</p>
       <div class="chart" id="covChart"></div>
       <div class="tblwrap" style="margin-top:12px"><table id="genTbl"></table></div>
     </div>
@@ -241,7 +241,7 @@ pre.log { margin: 0; max-height: 360px; overflow: auto; background: var(--surfac
   const ago = (t, now) => t ? dur(now - t) + " ago" : "–";
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const OUT = [{ key: "ok", label: "Completed", c: "--s-ok" }, { key: "crash", label: "Crash", c: "--s-crash" }, { key: "red", label: "Red light", c: "--s-red" }, { key: "timeout", label: "Timeout", c: "--s-timeout" }];
-  const BEH = ["Ordinary", "Wrong-way", "Cut-in", "Early left", "Sudden brake", "Aggressive"];
+  const BEH = ["Ordinary", "Wrong-way", "Cut-in", "Early left", "Sudden brake", "Aggressive", "Jaywalk"];
   const DENS = ["Very light", "Light", "Medium", "Busy", "Very busy"];
   let S = null, ppoSel = null, userPicked = false;
 
@@ -425,14 +425,14 @@ pre.log { margin: 0; max-height: 360px; overflow: auto; background: var(--surfac
     let h = `<div class="heat"><div></div>${BEH.map((b) => `<div class="cl">${b}</div>`).join("")}`;
     for (let d = 4; d >= 0; d--) {
       h += `<div class="rl">${DENS[d]}</div>`;
-      for (let b = 0; b < 6; b++) {
+      for (let b = 0; b < BEH.length; b++) {
         const c = grid[d + "," + b];
         if (!c) { h += `<div class="c" title="${DENS[d]} · ${BEH[b]}: empty"></div>`; continue; }
         const i = Math.min(6, Math.floor(c.difficulty / mx * 6.999)), light = dark ? i < 4 : i < 3;
         h += `<div class="c f ${light ? "lt" : "dk"}" style="background:${ramp[i]}" title="${DENS[d]} · ${BEH[b]}&#10;Difficulty ${c.difficulty.toFixed(2)} · crash ${pct(c.crash)} · completed ${pct(c.ok)}&#10;Realism ${(+c.realism).toFixed(2)}">${c.difficulty.toFixed(2)}</div>`;
       }
     }
-    h += `</div><div class="ramp"><span>Easy</span><i></i><span>Hard (${mx.toFixed(2)})</span><span style="margin-left:auto">${A.cells.length}/30 cells</span></div>`;
+    h += `</div><div class="ramp"><span>Easy</span><i></i><span>Hard (${mx.toFixed(2)})</span><span style="margin-left:auto">${A.cells.length}/${5 * BEH.length} cells</span></div>`;
     $("heat").innerHTML = h;
     $("coSub").textContent = C ? (C.step === "done" ? "Final archive. " : `Gen ${C.gen + 1}/${C.gens} · `) + "Each cell holds the hardest realistic scenario for that density and road-user behaviour. The number is its difficulty." : "Each cell holds the hardest realistic scenario for that density and road-user behaviour.";
   }

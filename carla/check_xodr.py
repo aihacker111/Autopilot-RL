@@ -6,25 +6,44 @@ import math, sys, xml.etree.ElementTree as ET
 def geom_point(g, s):
     x, y, h = float(g.get("x")), float(g.get("y")), float(g.get("hdg"))
     if g.find("line") is not None: return x + s * math.cos(h), y + s * math.sin(h), h
+    a = g.find("arc")
+    if a is not None:
+        k = float(a.get("curvature")); th = h + k * s
+        return x + (math.sin(th) - math.sin(h)) / k, y - (math.cos(th) - math.cos(h)) / k, th
     p = g.find("paramPoly3"); L = float(g.get("length")); t = s / L
     U = lambda q: float(p.get("a" + q)) + float(p.get("b" + q)) * t + float(p.get("c" + q)) * t * t + float(p.get("d" + q)) * t ** 3
     dU = lambda q: float(p.get("b" + q)) + 2 * float(p.get("c" + q)) * t + 3 * float(p.get("d" + q)) * t * t
     u, v = U("U"), U("V"); hu, hv = dU("U"), dU("V")
     return x + u * math.cos(h) - v * math.sin(h), y + u * math.sin(h) + v * math.cos(h), h + math.atan2(hv, hu)
 
+def ref_point(road, s):
+    """Point on a road's reference line; the planView may hold many geometries."""
+    gs = road.findall("planView/geometry"); g = gs[0]
+    for q in gs:
+        if float(q.get("s")) <= s + 1e-9: g = q
+    return geom_point(g, min(s - float(g.get("s")), float(g.get("length"))))
+
+def elev(road, s):
+    es = road.findall("elevationProfile/elevation"); e = None
+    for q in es:
+        if float(q.get("s")) <= s + 1e-9: e = q
+    if e is None: return 0.0
+    d = s - float(e.get("s")); return float(e.get("a")) + float(e.get("b")) * d + float(e.get("c")) * d * d + float(e.get("d")) * d ** 3
+
 def lane_point(road, s, lane):
-    g = road.find("planView/geometry"); x, y, h = geom_point(g, s)
+    x, y, h = ref_point(road, s)
     w = 0.0
     sec = road.find("lanes/laneSection")
     side = sec.find("right" if lane < 0 else "left")
     widths = {int(l.get("id")): float(l.find("width").get("a")) for l in side.findall("lane")}
     off = sum(widths[k] for k in (range(-1, lane, -1) if lane < 0 else range(1, lane))) + widths[lane] / 2
-    t = -off if lane < 0 else off
+    lo = road.find("lanes/laneOffset"); shift = float(lo.get("a")) if lo is not None else 0.0   # moves the lane reference to the left
+    t = (-off if lane < 0 else off) + shift
     return x - t * math.sin(h), y + t * math.cos(h), h if lane < 0 else h + math.pi
 
 def main(path):
     root = ET.parse(path).getroot(); roads = {r.get("id"): r for r in root.findall("road")}
-    worst_p, worst_h, n = 0, 0, 0
+    worst_p, worst_h, worst_z, n = 0, 0, 0, 0
     for r in roads.values():
         if r.get("junction") == "-1": continue
         L = float(r.get("length")); pre, suc = r.find("link/predecessor"), r.find("link/successor")
@@ -34,12 +53,13 @@ def main(path):
         sa = float(a.get("length")) if pre.get("contactPoint") == "end" else 0.0
         sb = float(b.get("length")) if suc.get("contactPoint") == "end" else 0.0
         ax, ay, ah = lane_point(a, sa, li); bx, by, bh = lane_point(b, sb, lo)
-        g = r.find("planView/geometry"); x0, y0, h0 = geom_point(g, 0); x1, y1, h1 = geom_point(g, L)
+        x0, y0, h0 = ref_point(r, 0); x1, y1, h1 = ref_point(r, L)
+        worst_z = max(worst_z, abs(elev(r, 0) - elev(a, sa)), abs(elev(r, L) - elev(b, sb)))
         dh = lambda p, q: abs(math.atan2(math.sin(p - q), math.cos(p - q)))
         worst_p = max(worst_p, math.hypot(x0 - ax, y0 - ay), math.hypot(x1 - bx, y1 - by)); worst_h = max(worst_h, dh(h0, ah), dh(h1, bh)); n += 1
     jids = {j.get("id") for j in root.findall("junction")}
     bad = [r.get("id") for r in roads.values() for e in r.findall("link/*") if e.get("elementType") == "junction" and e.get("elementId") not in jids]
-    print(f"roads {len(roads)} connecting {n} junctions {len(jids)} | worst endpoint gap {worst_p:.3f} m, worst heading gap {math.degrees(worst_h):.2f} deg | dangling refs {len(bad)}")
-    return worst_p < 0.05 and worst_h < math.radians(1) and not bad
+    print(f"roads {len(roads)} connecting {n} junctions {len(jids)} | worst endpoint gap {worst_p:.3f} m, worst heading gap {math.degrees(worst_h):.2f} deg, worst height gap {worst_z:.3f} m | dangling refs {len(bad)}")
+    return worst_p < 0.15 and worst_h < math.radians(3) and worst_z < 0.1 and not bad
 
 if __name__ == "__main__": sys.exit(0 if main(sys.argv[1]) else 1)

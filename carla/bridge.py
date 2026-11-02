@@ -24,7 +24,8 @@ sys.path.insert(0, HERE)
 CAMS = [("left", -55.0), ("front", 0.0), ("right", 55.0)]
 W, H, FOV = 384, 216, 70
 BEV = 24
-SIZE = {"moto": (1.9, 0.72), "bike": (1.7, 0.6), "car": (4.5, 1.8), "taxi": (4.4, 1.75), "bus": (10.5, 2.5), "truck": (7.0, 2.3)}
+SIZE = {"moto": (1.9, 0.72), "bike": (1.7, 0.6), "car": (4.5, 1.8), "taxi": (4.4, 1.75), "bus": (10.5, 2.5), "truck": (7.0, 2.3), "tractor": (3.4, 1.6),
+        "ped": (0.5, 0.5), "buffalo": (2.4, 1.05), "train": (14, 3.0), "parked": (4.4, 1.8), "stall": (2.4, 1.0), "stalled": (1.9, 0.7)}
 
 
 class Sim:
@@ -32,7 +33,7 @@ class Sim:
     def __init__(self, a):
         self.p = subprocess.Popen(["node", os.path.join(HERE, "bridge_worker.js")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
         genome = json.load(open(a.genome)) if a.genome else None
-        self.info = self.call({"cmd": "init", "mapSeed": a.map_seed, "nx": a.nx, "ny": a.ny, "density": a.density, "genome": genome, "teacher": a.teacher, "seed": a.seed})
+        self.info = self.call({"cmd": "init", "mapSeed": a.map_seed, "preset": a.preset, "place": a.place, "density": a.density, "genome": genome, "teacher": a.teacher, "seed": a.seed})
     def call(self, m): self.p.stdin.write(json.dumps(m) + "\n"); self.p.stdin.flush(); return json.loads(self.p.stdout.readline())
     def reset(self): return self.call({"cmd": "reset"})
     def step(self, action): return self.call({"cmd": "step", "action": action})
@@ -44,7 +45,8 @@ class Sim:
 def bev_grid(st):
     """privileged occupancy around the car: 24 m ahead x 24 m wide, 1 m cells (target of an auxiliary loss)"""
     g = np.zeros((BEV, BEV), np.uint8); e = st["ego"]; c, s = math.cos(e["h"]), math.sin(e["h"])
-    for _, typ, x, y, h, _ in st["actors"]:
+    for act in st["actors"]:
+        _, typ, x, y, h = act[:5]
         dx, dy = x - e["x"], y - e["y"]; fx, fy = dx * c + dy * s, -dx * s + dy * c
         if not (-1 < fx < BEV + 1 and -BEV / 2 - 1 < fy < BEV / 2 + 1): continue
         L, Wd = SIZE.get(typ, (2, 1)); ch, sh = math.cos(h - e["h"]), math.sin(h - e["h"])
@@ -68,7 +70,8 @@ class DryRenderer:
             im = Image.new("RGB", (W, H), (120, 150, 190)); d = ImageDraw.Draw(im)
             d.rectangle([0, H // 2, W, H], fill=(70, 72, 76))
             h0 = e["h"] + math.radians(yaw)
-            for _, typ, x, y, h, brk in st["actors"]:
+            for act in st["actors"]:
+                _, typ, x, y, h, brk = act[:6]
                 dx, dy = x - e["x"], y - e["y"]; fx, fy = dx * math.cos(h0) + dy * math.sin(h0), -dx * math.sin(h0) + dy * math.cos(h0)
                 if fx < 1 or fx > 40 or abs(fy) > fx * 0.8: continue
                 sx = W / 2 + fy / fx * (W / 2) / math.tan(math.radians(FOV / 2)); size = 260 / fx * (SIZE.get(typ, (2, 1))[1] + 0.6)
@@ -96,7 +99,14 @@ class CarlaRenderer:
             "bike": ["vehicle.diamondback.century", "vehicle.gazelle.omafiets", "vehicle.bh.crossbike"],
             "car": ["vehicle.toyota.prius", "vehicle.mini.cooper_s", "vehicle.nissan.micra", "vehicle.seat.leon", "vehicle.citroen.c3", "vehicle.audi.a2"],
             "taxi": ["vehicle.ford.crown", "vehicle.toyota.prius"], "bus": ["vehicle.mitsubishi.fusorosa"],
-            "truck": ["vehicle.carlamotors.carlacola", "vehicle.mercedes.sprinter", "vehicle.volkswagen.t2"]}.items()}
+            "truck": ["vehicle.carlamotors.carlacola", "vehicle.mercedes.sprinter", "vehicle.volkswagen.t2"],
+            "tractor": ["vehicle.volkswagen.t2", "vehicle.mercedes.sprinter"],
+            "parked": ["vehicle.toyota.prius", "vehicle.mini.cooper_s", "vehicle.nissan.micra", "vehicle.citroen.c3"],
+            "stalled": ["vehicle.vespa.zx125", "vehicle.yamaha.yzf"],
+            "ped": [b.id for b in self.lib.filter("walker.pedestrian.*")][:24],
+            # CARLA has no animals, stalls or trains: closest props (the student still learns them from the 2D teacher's reactions)
+            "buffalo": ["static.prop.haybalelb", "static.prop.haybale"], "stall": ["static.prop.foodcart", "static.prop.kiosk_01", "static.prop.box03"],
+            "train": ["vehicle.carlamotors.firetruck", "vehicle.mitsubishi.fusorosa"]}.items()}
         self.actors, self.ego, self.cams, self.queues = {}, None, [], []
         self.juncs = sim_info["juncs"]; self.tl = {}
         self.weathers = [carla.WeatherParameters.ClearNoon, carla.WeatherParameters.CloudyNoon, carla.WeatherParameters.WetNoon, carla.WeatherParameters.ClearSunset, carla.WeatherParameters.SoftRainNoon]
@@ -108,14 +118,15 @@ class CarlaRenderer:
         for tl in self.world.get_actors().filter("traffic.traffic_light"):
             try: wps = tl.get_stop_waypoints(); loc = wps[0].transform.location if wps else tl.get_location()
             except Exception: loc = tl.get_location()
-            j = min(self.juncs, key=lambda q: (q["x"] - loc.x) ** 2 + (q["y"] - loc.y) ** 2)
-            dx, dy = loc.x - j["x"], loc.y - j["y"]
-            arm = ("E" if dx > 0 else "W") if abs(dx) > abs(dy) else ("S" if dy > 0 else "N")
+            j = min((q for q in self.juncs if q["type"] == "signal"), key=lambda q: (q["x"] - loc.x) ** 2 + (q["y"] - loc.y) ** 2, default=None)
+            if j is None: continue
+            ang = math.atan2(loc.y - j["y"], loc.x - j["x"])   # the arm whose direction is closest to where the light stands
+            arm = min(zip(j["arms"], j["angs"]), key=lambda p: abs(math.atan2(math.sin(p[1] - ang), math.cos(p[1] - ang))))[0]
             self.tl.setdefault((j["id"], arm), []).append(tl); tl.freeze(True)
         if not self.tl: print("warning: CARLA generated no traffic lights for this map; the student will not see signals (use --v2i-light)", flush=True)
 
-    def _tf(self, x, y, h, z=0.05):
-        c = self.carla; return c.Transform(c.Location(x=x, y=y, z=z), c.Rotation(yaw=math.degrees(h)))
+    def _tf(self, x, y, h, z=0.0):
+        c = self.carla; return c.Transform(c.Location(x=x, y=y, z=z + 0.05), c.Rotation(yaw=math.degrees(h)))
 
     def _spawn(self, model, k):
         c = self.carla; bp = self.lib.find(model)
@@ -135,15 +146,16 @@ class CarlaRenderer:
 
     def update(self, st):
         c = self.carla; e = st["ego"]; self._ensure_ego(e)
-        seen, batch = set(), [c.command.ApplyTransform(self.ego.id, self._tf(e["x"], e["y"], e["h"]))]
-        for aid, typ, x, y, h, brk in st["actors"]:
+        seen, batch = set(), [c.command.ApplyTransform(self.ego.id, self._tf(e["x"], e["y"], e["h"], e.get("z", 0)))]
+        for act_ in st["actors"]:
+            aid, typ, x, y, h, brk = act_[:6]; z = act_[6] if len(act_) > 6 else 0
             seen.add(aid); act = self.actors.get(aid)
             if act is None:
                 models = self.models.get(typ) or self.models["car"]
                 act = self._spawn(self.rng.choice(models), aid) if models else None
                 if act is None: continue
                 self.actors[aid] = act
-            batch.append(c.command.ApplyTransform(act.id, self._tf(x, y, h)))
+            batch.append(c.command.ApplyTransform(act.id, self._tf(x, y, h, z)))
         gone = [k for k in self.actors if k not in seen]
         if gone: self.client.apply_batch([c.command.DestroyActor(self.actors.pop(k).id) for k in gone])
         self.client.apply_batch(batch)
@@ -188,7 +200,7 @@ def run(a):
     if not a.dry_run and not a.xodr:   # export the same city for CARLA
         a.xodr = os.path.join(a.out_dir, f"city{a.map_seed}.xodr")
         os.makedirs(a.out_dir, exist_ok=True)
-        subprocess.run(["node", os.path.join(HERE, "export_xodr.js"), "--seed", str(a.map_seed), "--nx", str(a.nx), "--ny", str(a.ny), "--out", a.xodr], check=True)
+        subprocess.run(["node", os.path.join(HERE, "export_xodr.js"), "--seed", str(a.map_seed), "--preset", a.preset, "--place", a.place, "--out", a.xodr], check=True)
     sim = Sim(a)
     ren = (DryRenderer if a.dry_run else CarlaRenderer)(sim.info, a)
     student = None
@@ -229,7 +241,9 @@ if __name__ == "__main__":
     p.add_argument("--teacher", default="planner", help="policy JSON from Phase 2/3, 'planner' or 'idm'")
     p.add_argument("--student", default=None, help="student checkpoint (student.py train)")
     p.add_argument("--beta", type=float, default=0.5, help="collect: probability that the teacher drives a given decision")
-    p.add_argument("--map-seed", type=int, default=7); p.add_argument("--nx", type=int, default=3); p.add_argument("--ny", type=int, default=3)
+    p.add_argument("--map-seed", type=int, default=7); p.add_argument("--preset", default="hcm", help="kind of map: hcm (real Ho Chi Minh City) or a generated preset")
+    p.add_argument("--place", default="Ngã tư Bảy Hiền", help="with --preset hcm: the window of the city to export and drive in")
+    p.add_argument("--nx", type=int, default=3, help=argparse.SUPPRESS); p.add_argument("--ny", type=int, default=3, help=argparse.SUPPRESS)
     p.add_argument("--density", type=float, default=0.8); p.add_argument("--genome", default=None, help="Phase 3 scenario genome JSON")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--xodr", default=None); p.add_argument("--out-dir", default=os.path.join(HERE, "..", "rl", "runs", "phase4"))

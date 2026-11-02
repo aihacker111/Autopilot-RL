@@ -1,6 +1,8 @@
 // Loads the shared simulation, environment and planner (from ../web) into the global scope for Node scripts.
 const path = require("path");
 const W = path.join(__dirname, "..", "web");
+Object.assign(global, require(path.join(W, "world.js")));
+Object.assign(global, require(path.join(W, "osm.js")));
 Object.assign(global, require(path.join(W, "sim.js")));
 Object.assign(global, require(path.join(W, "env.js")));
 Object.assign(global, require(path.join(W, "planner.js")));

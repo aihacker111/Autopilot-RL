@@ -34,5 +34,5 @@ phase4:                  # camera student in CARLA (DAgger with the phase 3 car 
   eval_episodes: 30
   epochs: 30
   map_seed: 7
-  nx: 3
-  ny: 3
+  preset: hcm            # map exported to CARLA: hcm (a window of real Ho Chi Minh City), or a generated one: region, city, alley, roundabout, highway, rail, rural, pass
+  place: "Ngã tư Bảy Hiền"   # with preset hcm: the part of the city (any place name the simulator's search finds)

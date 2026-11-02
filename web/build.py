@@ -55,7 +55,7 @@ def collect(runs, keep=4):
 
 def build_page(runs=None):
     av, n = collect(runs or DEFAULT_RUNS)
-    out = (rd('template.html').replace('/*SIM*/', rd('sim.js')).replace('/*RENDER*/', rd('render.js'))
+    out = (rd('template.html').replace('/*WORLD*/', rd('world.js') + '\n' + rd('osm.js')).replace('/*SIM*/', rd('sim.js')).replace('/*RENDER*/', rd('render.js'))
            .replace('/*ENV*/', rd('env.js')).replace('/*PLANNER*/', rd('planner.js'))
            .replace('/*AVDATA*/', 'const AV_DATA = ' + json.dumps(av, separators=(',', ':')) + ';' if av else '')
            .replace('/*UI*/', rd('ui.js')))

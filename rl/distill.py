@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-EGO_DIM, WP, K, NB = 15, 10, 16, 14
+EGO_DIM, WP, K, NB = 23, 10, 16, 16   # must match ENV in web/env.js (observation v3)
 HEAD = EGO_DIM + WP * 2          # ego features + route waypoints
 OBS = HEAD + K * NB
 

@@ -17,11 +17,11 @@
 
 [English](README.md) · **Tiếng Việt**
 
-<img src="docs/images/street.jpg" width="100%" alt="Mô phỏng 2D: xe tự lái viền xanh ngọc qua một ngã tư đông xe máy">
+<img src="docs/images/street.jpg" width="100%" alt="Mô phỏng 2D TP.HCM thật: vòng xoay Hàng Xanh và cầu vượt, đông xe máy">
 
 </div>
 
-**LOTUS** (hoa sen, quốc hoa Việt Nam) là một đường ống hoàn chỉnh, từ mô phỏng đến xe nhìn camera. Đầu tiên là một **khu phố 2D sinh ngẫu nhiên**: ngã tư có đèn đếm ngược, nút không đèn, ngã ba, và hàng trăm xe máy lách khe theo tính cách riêng. Trong đó, một **người thầy nhìn trước tương lai** được chưng cất thành mạng nơ-ron rồi tinh chỉnh bằng PPO. Tiếp theo là **đồng tiến hoá** đám xe máy để tìm những tình huống khó mà vẫn giống người thật. Cuối cùng, kiến thức được truyền sang **học sinh chỉ nhìn bằng camera** trong CARLA.
+**LOTUS** (hoa sen, quốc hoa Việt Nam) là một đường ống hoàn chỉnh, từ mô phỏng đến xe nhìn camera. Đầu tiên là một **Việt Nam 2D sinh ngẫu nhiên**: ngã tư có đèn đếm ngược, ngã năm ngã sáu, vòng xoay, hẻm nhỏ, đường chợ, quốc lộ có dải phân cách, làn xe máy và chỗ quay đầu, đường ngang tàu hoả, đường làng có trâu và đoạn ngập, đèo có cua tay áo, tất cả trên địa hình đồi dốc. Hàng trăm xe máy lách khe theo tính cách riêng, người đi bộ băng qua đường ở bất cứ đâu. Trong đó, một **người thầy nhìn trước tương lai** được chưng cất thành mạng nơ-ron rồi tinh chỉnh bằng PPO. Tiếp theo là **đồng tiến hoá** đám xe máy để tìm những tình huống khó mà vẫn giống người thật. Cuối cùng, kiến thức được truyền sang **học sinh chỉ nhìn bằng camera** trong CARLA.
 
 <details open>
 <summary><b>Mục lục</b></summary>
@@ -45,13 +45,13 @@
 
 | | |
 |---|---|
-| 🏙️ **Khu phố sinh ngẫu nhiên** | Lưới 1×1 đến 3×3 nút giao, ba cấp đường, nút có đèn hoặc không, ngã ba. Mỗi cảnh huấn luyện là một khu phố mới, nên xe học cách tổng quát hoá chứ không học thuộc. |
-| 🛵 **Xe máy có tính cách** | Mỗi xe có mức liều lĩnh, kiên nhẫn, tuân thủ luật và tốc độ ưa thích riêng. Xe máy lách khe, bò lên vạch, vượt đỏ, rẽ phải khi đèn đỏ, bấm còi. Giai đoạn 3 thêm đi ngược chiều, tạt đầu, rẽ trái cắt sớm và phanh gấp. |
+| 🗺️ **Việt Nam sinh ngẫu nhiên** | Tám loại bản đồ (xem bên dưới), từ một vòng xoay đến một vùng hỗn hợp gồm tất cả. Đường bám theo địa hình nên có dốc thật; nhà cửa, sạp chợ, đồi và xe lớn che khuất phía sau. Mỗi cảnh huấn luyện là một bản đồ mới, nên xe học cách tổng quát hoá chứ không học thuộc. |
+| 🛵 **Xe máy có tính cách** | Mỗi xe có mức liều lĩnh, kiên nhẫn, tuân thủ luật và tốc độ ưa thích riêng. Xe máy lách khe, bò lên vạch, vượt đỏ, rẽ phải khi đèn đỏ, bấm còi. Giai đoạn 3 thêm đi ngược chiều, tạt đầu, rẽ trái cắt sớm, phanh gấp và băng qua đường ẩu. Trên đường còn có người đi bộ, trâu, máy cày, xe buýt và tàu hoả. |
 | 🔮 **Người thầy nhìn trước** | Mỗi 0,2 giây, người thầy sao chép thế giới quanh xe rồi thử nhiều phương án trong 2,4 giây tới, với nhiều tương lai ngẫu nhiên. Trên bộ đề cố định, nó không gây vụ va chạm nào. |
 | 🎓 **Chưng cất + DAgger + PPO** | Một mạng DeepSets học theo người thầy. Nó được dạy lại cả trên những tình huống do chính nó lái sai, rồi PPO tinh chỉnh tiếp từ đó. |
 | 🧬 **Đồng tiến hoá có lọc hiện thực** | MAP-Elites tìm những kịch bản giao thông khó và đa dạng. Một bộ lọc với ngưỡng có sẵn loại các kiểu xe máy "tự sát", tức là không ai ngoài đời chạy như vậy. |
 | 📷 **Học sinh nhìn camera** | Ba camera đưa vào một mô hình nền đóng băng (DINOv3 hoặc V-JEPA 2), kèm các nhiệm vụ phụ: đoán màu đèn và bản đồ chiếm chỗ. Học sinh học theo kiểu DAgger trong CARLA. |
-| 🌐 **Xem ngay trên trình duyệt** | Mở `web/lotus.html`: chọn người lái, sinh bản đồ mới, xem 16 xe mà mạng đang quan sát. |
+| 🌐 **Xem ngay trên trình duyệt** | Mở `web/lotus.html`: chọn bản đồ và người lái, sinh bản đồ mới, xem 16 xe mà mạng đang quan sát và những gì bị che khuất. |
 
 ## 🧭 Kiến trúc
 
@@ -121,7 +121,7 @@ python pipeline.py --smoke
 
 Nếu thấy dòng `"minutes": ...` ở cuối và thư mục `rl/runs_smoke/` có `pipeline_summary.json` thì máy bạn đã sẵn sàng. Ở chế độ này các con số đều thấp, vì mạng chỉ học vài trăm mẫu. Điều đó là bình thường.
 
-Muốn xem mô phỏng: mở `web/lotus.html` bằng trình duyệt.
+Muốn xem mô phỏng: mở `web/lotus.html` bằng trình duyệt. Với bản đồ TP.HCM, cần phục vụ thư mục trước: `cd web && python -m http.server`, rồi mở `http://localhost:8000/lotus.html`.
 
 ## 🚀 Chạy cả đường ống
 
@@ -174,9 +174,61 @@ Thời gian tham khảo trên server 32 nhân CPU và 1 GPU:
 
 ### Giai đoạn 1 · Mô phỏng 2D
 
-Không cần huấn luyện. Lõi mô phỏng nằm trong `web/sim.js`, chạy được cả trên trình duyệt lẫn Node.
+### TP. Hồ Chí Minh (bản đồ thật, OpenStreetMap)
 
-<img src="docs/images/city.jpg" width="100%" alt="Toàn cảnh khu phố 3x3 nút giao">
+Mặc định, huấn luyện, đánh giá và xuất sang CARLA đều dùng **TP.HCM thật**. Dữ liệu lấy từ OpenStreetMap (© OpenStreetMap contributors, ODbL), gồm:
+- mọi tuyến đường và hẻm đã được vẽ, kèm tên, số làn, chiều đi một chiều và giới hạn tốc độ;
+- luật cấm rẽ, đèn tín hiệu, vòng xoay, cầu vượt và hầm chui kèm tầng cao;
+- đường sắt Bắc–Nam với các đường ngang, Metro số 1 cả đoạn trên cao lẫn đoạn ngầm;
+- sông và kênh, công viên, footprint nhà, trạm xe buýt, tên nút giao và địa danh.
+
+Bản dựng hiện tại có 450.270 nút giao, 536.013 đoạn đường, 2.152 nút có đèn, 381 vòng xoay, 73 đường ngang và 442 luật cấm rẽ.
+
+Mô phỏng chạy trên **một vùng của thành phố, rộng khoảng 1,2 km**. Đường cắt mép vùng thành lối vào ra; hẻm cụt thành "nhà". Mỗi lượt lái bắt đầu ở một nút giao đông khác nhau trong thành phố.
+
+Trên trình duyệt:
+- tìm địa điểm, gõ có dấu hay không đều được: *Bảy Hiền*, *Hàng Xanh*, *Lăng Cha Cả*, *Ngã sáu Cộng Hòa*…;
+- hoặc mở bản đồ nhỏ *Whole city* rồi bấm vào chỗ muốn lái tới;
+- trang phải được phục vụ qua HTTP để tải các ô bản đồ: `cd web && python -m http.server`, rồi mở `http://localhost:8000/lotus.html`;
+- `?place=Hàng Xanh` hoặc `?at=x,y` mở đúng một vị trí.
+
+Dựng lại dữ liệu, ví dụ để lấy các chỉnh sửa mới trên OpenStreetMap:
+
+```bash
+# 1. tải bản Việt Nam (~330 MB, cập nhật hằng ngày) từ download.geofabrik.de/asia/vietnam.html
+mkdir -p data/osm && curl -L -o data/osm/vietnam-latest.osm.pbf https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+# 2. cắt riêng TP.HCM (~1 phút, cần: pip install osmium)
+python data/extract_hcm.py data/osm/vietnam-latest.osm.pbf data/hcm
+# 3. dựng mạng đường và các ô bản đồ trong web/hcm/ (~30 giây)
+node --max-old-space-size=8000 data/build_hcm.js data/hcm web/hcm
+```
+
+Những gì không phải thật:
+- **Giao thông là mô phỏng.** OpenStreetMap không có lưu lượng xe hay thời gian đèn, nên chu kỳ đèn suy từ cỡ đường.
+- **Nhà cửa sinh thêm một phần.** OpenStreetMap chỉ có footprint của một phần nhà; phần còn lại được lấp bằng dãy nhà phố theo hướng đường quanh đó.
+- **Hẻm và biển báo không có trên OpenStreetMap thì không bịa ra.** Biển báo suy từ luật: cấm đi ngược chiều ở đầu kia đường một chiều, cấm rẽ trái/phải/quay đầu từ luật cấm rẽ, cùng các biển dừng và nhường đường đã được vẽ.
+- **Lịch tàu là ước lượng.**
+
+Các bản đồ sinh ngẫu nhiên bên dưới vẫn dùng được (`--presets city,alley`), và được dùng khi thiếu dữ liệu thành phố.
+
+#### Bản đồ sinh ngẫu nhiên
+
+Không cần huấn luyện. Bộ sinh bản đồ nằm trong `web/world.js`, giao thông trong `web/sim.js`; cả hai chạy được trên trình duyệt lẫn Node.
+
+| Bản đồ (`preset`) | Gồm những gì |
+|---|---|
+| `region` (mặc định) | Một vùng hỗn hợp: thị trấn 3×3 có đại lộ chéo (ngã năm, ngã sáu), vòng xoay, một phố chợ và một khối hẻm; quốc lộ có dải phân cách, làn xe máy, chỗ quay đầu và trạm xe buýt; một con đèo vượt đồi; đường sắt với hai đường ngang; đường làng có trâu, máy cày và một đoạn trũng ngập nước. |
+| `city` | Lưới phố có đèn, nút giao lệch và một phố chợ |
+| `alley` | Một khối hẻm 2–3 m thông ra đường lớn, bên trong chỉ có xe máy, xe đỗ, góc khuất |
+| `roundabout` | Một vòng xoay lớn và các nút có đèn xung quanh |
+| `highway` | Đường có dải phân cách, làn xe máy, chỗ quay đầu, trạm xe buýt |
+| `rail` | Đường ngang có rào chắn, tàu chạy theo lịch |
+| `rural` | Đường làng: trâu, máy cày, xóm, tre, một đoạn ngập |
+| `pass` | Đèo có cua tay áo, dốc tới 11%, rừng và vực |
+
+Trên trình duyệt, chọn bản đồ trong danh sách hoặc mở `lotus.html?map=alley`.
+
+<img src="docs/images/city.jpg" width="100%" alt="Khu Hàng Xanh của TP.HCM từ OpenStreetMap, có tên đường">
 
 ```bash
 cd web && python build.py          # tạo web/lotus.html, tự gắn các mạng đã học trong rl/runs/
@@ -185,7 +237,7 @@ cd web && python build.py          # tạo web/lotus.html, tự gắn các mạn
 Thử nhanh bằng Node:
 
 ```bash
-node -e 'const {Sim,cityMap}=require("./web/sim.js"); const s=new Sim(cityMap(7),7,0.9); for(let i=0;i<600;i++) s.step(); console.log(s.summary())'
+node -e 'Object.assign(global, require("./web/world.js")); const {Sim}=require("./web/sim.js"); const s=new Sim(cityMap(7,{preset:"region"}),7,0.8); for(let i=0;i<600;i++) s.step(); console.log(s.summary())'
 ```
 
 ### Giai đoạn 2 · Người thầy trạng thái đầy đủ
@@ -203,7 +255,8 @@ Hoặc gộp bằng một lệnh: `bash rl/run_phase2.sh`.
 <details>
 <summary><b>Bài toán RL (quan sát · hành động · phần thưởng)</b></summary>
 
-- **Quan sát (259 số):** tốc độ, lệnh trước đó, vị trí trong làn; khoảng cách tới vạch dừng, lối ra và đích; loại nút, màu đèn và số giây đếm ngược; 10 điểm mốc lộ trình phía trước; 16 xe gần nhất trong 30 m (vị trí và vận tốc tương đối, hướng, kích thước, khe hở giữa thân xe, thời điểm và khoảng cách tiếp cận gần nhất, đang lách ngang, đang phanh).
+- **Quan sát (299 số):** tốc độ, lệnh trước đó, vị trí trong làn; khoảng cách tới vạch dừng, lối ra và đích; loại nút, màu đèn (hoặc rào chắn đường ngang) và số giây đếm ngược; độ dốc hiện tại và 25 m phía trước, tầm nhìn, bề rộng đường, nút phải nhường phía trước, đang ngập và sắp ngập, khu có người đi bộ; 10 điểm mốc lộ trình phía trước; 16 đối tượng gần nhất trong 30 m (vị trí và vận tốc tương đối, hướng, kích thước, khe hở giữa thân, thời điểm và khoảng cách tiếp cận gần nhất, đang lách ngang, đang phanh, dễ bị tổn thương, đứng yên).
+- **Che khuất:** đối tượng bị nhà, sạp chợ, đồi hay xe lớn che (kiểm tra tầm nhìn trên bản đồ độ cao) bị bỏ khỏi quan sát. Người thầy lập kế hoạch với đúng góc nhìn đó, và tự thêm một xe máy "ma" ở hẻm khuất bên hông cùng một xe chết máy ngay sau tầm nhìn, nên nó giảm tốc đúng chỗ một tài xế cẩn thận sẽ giảm.
 - **Hành động (mỗi 0,2 s):** tốc độ mong muốn (0–50 km/h) và vị trí ngang trong làn. Một bộ điều khiển cấp thấp bám tốc độ, có giới hạn gia tốc và độ giật.
 - **Phần thưởng:**
   - +0,1 cho mỗi mét tiến được, +5 khi tới đích;
@@ -224,7 +277,7 @@ python rl/coevolve.py --policy rl/runs/finetune_v2/final.json --init rl/runs/fin
 ```
 
 Mỗi thế hệ gồm bốn bước:
-1. **MAP-Elites** tìm các *bộ gen kịch bản*: mật độ, tỉ lệ xe máy, phân bố tính cách, tỉ lệ đi ngược chiều, tạt đầu, rẽ trái cắt sớm, phanh gấp. Kho được chia thành lưới *mật độ × hành vi nổi bật*, và mỗi ô giữ kịch bản khó nhất của nó.
+1. **MAP-Elites** tìm các *bộ gen kịch bản*: mật độ, tỉ lệ xe máy, phân bố tính cách, tỉ lệ đi ngược chiều, tạt đầu, rẽ trái cắt sớm, phanh gấp, cùng số người đi bộ và tỉ lệ băng qua đường ẩu. Kho được chia thành lưới *mật độ × hành vi nổi bật*, và mỗi ô giữ kịch bản khó nhất của nó.
 2. **Lọc hiện thực:** loại kịch bản có tỉ lệ hành vi vượt ngưỡng hợp lý. Ngưỡng nằm sẵn trong `calib/priors_vn.json`, **không cần thu thêm dữ liệu nào**.
 3. **PPO huấn luyện lại** xe tự lái: một nửa số cảnh lấy từ kho kịch bản khó, một nửa là giao thông thường để xe không quên.
 4. **Chấm lại cả kho** với xe mới. Ô nào xe đã thắng được sẽ trở nên dễ, và cuộc tìm kiếm chuyển sang chỗ khác.
@@ -234,12 +287,34 @@ Mỗi thế hệ gồm bốn bước:
 <details>
 <summary><b>(Tuỳ chọn, không bắt buộc) Hiệu chỉnh bộ lọc từ video giao thông thật</b></summary>
 
-Chỉ cần nếu sau này bạn muốn ngưỡng sát thực tế hơn. Quỹ đạo từ bất kỳ nguồn nào (camera cố định, drone, bộ dữ liệu công khai) xuất ra CSV với các cột `frame,id,x,y[,cls]`, trong đó x, y tính bằng mét trên mặt đất. Sau đó chạy:
+Chỉ cần nếu sau này bạn muốn ngưỡng sát thực tế hơn. Quỹ đạo thật **chỉ dùng để đặt các ngưỡng này**, không dùng để dạy xe lái.
+
+**1. Lấy quỹ đạo.** Hiện chưa có bộ quỹ đạo Việt Nam nào tải về dùng ngay được; các bộ sau dùng được luôn:
+
+| Bộ dữ liệu | Vì sao | Ở đâu |
+|---|---|---|
+| OnSiteVRU (Thượng Hải) | xe đạp điện dày đặc, toạ độ mét, 25 Hz | [Kaggle](https://www.kaggle.com/datasets/zcyan2/mixed-traffic-trajectory-dataset-in-from-shanghai) |
+| Quỹ đạo drone Delhi/Noida | hỗn hợp, không theo làn, nhiều xe hai bánh | [Zenodo](https://doi.org/10.5281/zenodo.17745347) |
+| HetroD (Đài Loan) | đi bên phải, xe tay ga nhiều hơn ô tô | [bài báo](https://arxiv.org/abs/2602.03447) (xem trang dự án để biết cách tải) |
+| UIT-ADrone (TP.HCM) | video drone Việt Nam, cần tự dò và bám xe trước | [trang dự án](https://uit-together.github.io/datasets/UIT-ADrone/) |
+
+**2. Chuyển đổi** sang CSV chung (`frame,id,x,y,cls`, đơn vị mét). Script tự nhận cột và in ra; `--*-col` để chỉ định lại, `--scale` để đổi đơn vị, và tốc độ xe hai bánh in ra cho biết ngay nếu sai đơn vị:
 
 ```bash
-python calib/fit_from_tracks.py tracks.csv --fps 30 --out calib/measured.json
-# rồi trong configs/default.yaml: phase3.priors: calib/measured.json
+python calib/convert_tracks.py --preset onsitevru data/onsitevru/*.csv --out calib/tracks_onsitevru.csv
+python calib/convert_tracks.py --preset delhi     data/delhi/*.csv     --out calib/tracks_delhi.csv
+python calib/convert_tracks.py --preset hetrod    data/hetrod/*.csv    --out calib/tracks_hetrod.csv
+python calib/convert_tracks.py --preset generic my.csv --id-col track --t-col time --x-col px --y-col py --scale 0.05
 ```
+
+**3. Đo và gộp** với ngưỡng Việt Nam (mỗi nguồn đo riêng; ở mỗi chỉ số giữ ngưỡng rộng hơn, để không loại nhầm hành vi bình thường ở Việt Nam):
+
+```bash
+python calib/fit_from_tracks.py calib/tracks_delhi.csv calib/tracks_onsitevru.csv --merge calib/priors_vn.json --out calib/measured.json
+# rồi trong configs/default.yaml: phase3.priors: calib/measured.json, và chạy lại giai đoạn 3: python pipeline.py --stages 3 --redo 3
+```
+
+Quỹ đạo tự thu (camera cố định, drone) cũng dùng được: mọi CSV có `frame,id,x,y[,cls]` tính bằng mét đưa thẳng vào `fit_from_tracks.py` (thêm `--fps`).
 
 Script đo các chỉ số theo định nghĩa giống mô phỏng: tỉ lệ thời gian đi ngược chiều, số lần tạt đầu trên mỗi xe-phút, số lần phanh gấp trên mỗi xe máy-phút, kèm phân bố tốc độ và gia tốc. Có thể thử trước bằng quỹ đạo mô phỏng: `node calib/export_tracks.js --seconds 120 --out sim.csv`.
 
@@ -258,7 +333,7 @@ python carla/phase4.py --teacher rl/runs/coevolve/ft_g3/final.json --rounds 4 --
 
 | Bước | Lệnh riêng lẻ | Mô tả |
 |---|---|---|
-| Xuất bản đồ | `node carla/export_xodr.js --seed 7 --out city7.xodr` | Khu phố được xuất sang OpenDRIVE 1.4, đường cong nối trong nút ghi dạng paramPoly3. Kiểm tra bằng `python carla/check_xodr.py city7.xodr`. |
+| Xuất bản đồ | `node carla/export_xodr.js --seed 7 --preset region --out region7.xodr` | Bản đồ bất kỳ được xuất sang OpenDRIVE 1.4: đường là chuỗi đoạn bậc ba (paramPoly3) có cao độ, dải phân cách, làn xe máy và vỉa hè; trong mỗi nút, mỗi hướng đi là một đường nối bám đúng quỹ đạo của lõi 2D. Kiểm tra bằng `python carla/check_xodr.py region7.xodr` (vị trí, hướng và cao độ phải khớp). |
 | Thu dữ liệu | `python carla/bridge.py collect --episodes 40 --teacher …` | 3 camera 384×216 ở 5 Hz. Mỗi khung có nhãn của thầy, tốc độ xe, lộ trình, màu đèn và bản đồ chiếm chỗ. |
 | Mã hoá ảnh | `python carla/student.py encode --data rl/runs/phase4/data --encoder dinov3` | Bộ mã hoá đóng băng; đặc trưng được lưu cache nên chỉ mã hoá một lần. |
 | Huấn luyện | `python carla/student.py train --data … --out student.pt` | Đầu mạng học hành động và hai nhiệm vụ phụ (màu đèn, bản đồ chiếm chỗ). |
@@ -285,14 +360,23 @@ Mọi tham số chính nằm trong [`configs/default.yaml`](configs/default.yaml
 
 ## 📊 Kết quả
 
-**Giai đoạn 2, bộ đề cố định 24 kịch bản** (khu phố 1×1 đến 3×3, mật độ 0,5 đến 1,05):
+**Giai đoạn 2 trên TP.HCM thật** (24 vùng chọn ngẫu nhiên trong thành phố, mật độ 0,5 đến 1,05):
 
-| Người lái | Qua được ↑ | Va chạm do lỗi mình ↓ | Vượt đỏ ↓ | Kẹt quá 2 phút |
-|---|---|---|---|---|
-| Bộ lái viết tay (IDM) | 54% | 8% | 0% | 38% |
-| **Người thầy nhìn trước** | **75%** | **0%** | **0%** | 17% (thêm 8% bị xe khác tông vào) |
+| Người lái | Qua được ↑ | Va chạm do lỗi mình ↓ | Vượt đỏ ↓ | Bị xe khác tông | Kẹt |
+|---|---|---|---|---|---|
+| Bộ lái viết tay (IDM) | 62% | 21% | 0% | 8% | 8% |
+| **Người thầy nhìn trước** | **67%** | **8%** | **0%** | 0% | 25% |
 
-Phần lớn các lượt "kẹt" là tắc đường thật ở những nút đông. Kết quả của học sinh DAgger, PPO tinh chỉnh, giai đoạn 3 và giai đoạn 4 sẽ được thêm vào sau khi chạy `python pipeline.py` trên server. Các con số trên đo trên bộ đề nhỏ; bộ 240 kịch bản sẽ cho số đáng tin hơn.
+Thành phố thật khó hơn nhiều so với bản đồ sinh: hẻm hai chiều hẹp nơi xe gặp xe máy ngược chiều đối đầu, hàng xe dài ở ngã sáu, người đi bộ bước ra giữa hàng xe máy đỗ. Thất bại của người thầy chủ yếu là kẹt trong những nút thắt như vậy; hai lần va chạm đều với người đi bộ.
+
+**Giai đoạn 2 trên bản đồ sinh** (cả tám loại bản đồ, mật độ 0,5 đến 1,05; 48 lượt cho IDM, 24 lượt cho người thầy):
+
+| Người lái | Qua được ↑ | Va chạm do lỗi mình ↓ | Vượt đỏ ↓ | Bị xe khác tông | Kẹt |
+|---|---|---|---|---|---|
+| Bộ lái viết tay (IDM) | 69% | 10% | 0% | 2% | 19% |
+| **Người thầy nhìn trước** | **96%** | **0%** | **0%** | 4% | 0% |
+
+Bộ lái viết tay chạy tốt trên quốc lộ và đèo, nhưng vất vả trong hẻm, ở vòng xoay và trong lưới phố đông, nơi nó cứ chờ một khe hở không bao giờ tới. Kết quả của học sinh DAgger, PPO tinh chỉnh, giai đoạn 3 và giai đoạn 4 sẽ được thêm vào sau khi chạy `python pipeline.py` trên server. `node rl/eval.js --presets alley,pass` chỉ đánh giá trên các loại bản đồ đã chọn, và bản tóm tắt có mục `by_preset` theo từng loại.
 
 ## 🗂️ Cấu trúc thư mục
 
@@ -302,7 +386,10 @@ Autopilot-RL/
 ├── monitor/                 # trang theo dõi huấn luyện: server.py (web server thư viện chuẩn) + dashboard.html
 ├── configs/default.yaml     # mọi tham số chính
 ├── web/                     # Giai đoạn 1 + phần dùng chung
-│   ├── sim.js               #   lõi mô phỏng: khu phố, đèn, xe máy, bộ gen kịch bản, sao chép thế giới
+│   ├── world.js             #   bộ sinh bản đồ: mạng đường, địa hình, nhà cửa, che khuất, tám loại bản đồ
+│   ├── osm.js               #   TP.HCM: các ô bản đồ, cắt vùng của thành phố thật, tìm địa điểm
+│   ├── hcm/                 #   thành phố dạng ô (dựng bởi data/build_hcm.js)
+│   ├── sim.js               #   giao thông: đèn, rào chắn, xe máy, người đi bộ, trâu, tàu, bộ gen kịch bản
 │   ├── env.js               #   môi trường RL; SetPolicy/MLPPolicy chạy mạng trên trình duyệt và Node
 │   ├── planner.js           #   người thầy nhìn trước, bộ lái viết tay
 │   ├── render.js, ui.js, template.html, build.py   # trang mô phỏng
@@ -317,11 +404,12 @@ Autopilot-RL/
 │   ├── train.py, sb3_train.py, worker.js   # PPO/SAC học từ đầu (để so sánh)
 │   └── run_phase2.sh
 ├── carla/                   # Giai đoạn 4
-│   ├── export_xodr.js, check_xodr.py       # khu phố → OpenDRIVE, và kiểm tra
+│   ├── export_xodr.js, check_xodr.py       # bản đồ → OpenDRIVE, và kiểm tra
 │   ├── bridge_worker.js, bridge.py         # cầu nối: lõi 2D là sự thật, CARLA vẽ
 │   ├── student.py                          # bộ mã hoá đóng băng + đầu mạng + nhiệm vụ phụ
 │   └── phase4.py                           # vòng DAgger trong CARLA
 ├── calib/                   # ngưỡng hiện thực + hiệu chỉnh từ quỹ đạo thật
+├── data/                    # extract_hcm.py, build_hcm.js: OpenStreetMap -> mạng đường TP.HCM
 └── docs/images/
 ```
 
@@ -364,7 +452,8 @@ DINOv3 có kiểm soát truy cập trên Hugging Face. Hãy chấp nhận giấy
 - [x] Giai đoạn 3: hành vi mới, MAP-Elites, lọc hiện thực, đồng tiến hoá
 - [x] Giai đoạn 4: OpenDRIVE, cầu nối CARLA, học sinh camera, DAgger
 - [ ] Chạy đầy đủ trên server và cập nhật bảng kết quả
-- [ ] Bản đồ thật từ OpenStreetMap (một ngã tư cụ thể ở Hà Nội hoặc Sài Gòn)
+- [x] Bản đồ thật TP.HCM từ OpenStreetMap (đường, hẻm, một chiều, cấm rẽ, đèn, cầu vượt, đường sắt, metro)
+- [ ] Hà Nội và các thành phố khác với cùng quy trình
 - [ ] (Tuỳ chọn) Hiệu chỉnh ngưỡng bằng quỹ đạo từ video thật
 - [ ] So sánh với mô hình thế giới học được (DreamerV3, TD-MPC2)
 - [ ] Người đi bộ qua đường

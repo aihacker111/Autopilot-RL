@@ -8,14 +8,16 @@ let act;
 if (args.driver === "planner") { const p = new LookaheadPlanner(); act = (env) => p.plan(env); }
 else if (!args.driver || args.driver === "idm") act = (env) => idmAct(env);
 else { const pol = makePolicy(JSON.parse(fs.readFileSync(args.driver))); act = (env, obs) => pol.act(obs); }
-const SIZES = [[1, 1], [2, 2], [2, 3], [3, 3]];
+const PRESETS = ["city", "alley", "roundabout", "highway", "rail", "rural", "pass", "city"];
 const out = [];
 for (const item of batch) {
   const g = item.genome, eps = [];
   const acc = { vehMin: 0, twoMin: 0, instantStops: 0, cutIns: 0, suddenBrakes: 0, npcColl: 0, wrongSteps: 0, twoSteps: 0, redRuns: 0, minutes: 0 };
   for (let k = 0; k < K; k++) {
-    const seed = (item.seed || 1) * 1000 + k, [nx, ny] = SIZES[(seed + k) % SIZES.length];
-    const env = new EgoEnv({ seed, mapOpts: { nx, ny }, reseedEvery: 0, genome: g, density: g.density });
+    // the real city when its data is present (the same busy places for every genome), else the generated maps
+    const seed = (item.seed || 1) * 1000 + k, city = getHcmCity(), preset = city ? "hcm" : PRESETS[(seed + k) % PRESETS.length];
+    const mapOpts = city ? { preset, centre: benchCentre(city, seed + k) } : { preset };
+    const env = new EgoEnv({ seed, mapOpts, reseedEvery: 0, genome: g, density: g.density });
     let obs = env.reset(), done = false, info;
     const st0 = { ...env.sim.stats }, t0 = env.sim.t;
     let vehSum = 0, twoSum = 0, n = 0;

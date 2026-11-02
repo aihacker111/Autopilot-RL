@@ -17,11 +17,11 @@
 
 **English** · [Tiếng Việt](README.vi.md)
 
-<img src="docs/images/street.jpg" width="100%" alt="2D simulation: the teal-outlined self-driving car crossing a junction full of motorbikes">
+<img src="docs/images/street.jpg" width="100%" alt="2D simulation of real Ho Chi Minh City: Hàng Xanh roundabout with its flyover, full of motorbikes">
 
 </div>
 
-**LOTUS** (the lotus is Vietnam's national flower) is a complete pipeline from simulation to a camera-only car. It starts with a **procedurally generated 2D city**: signalised junctions with countdown timers, unsignalised junctions, T-junctions, and hundreds of motorbikes that weave through gaps according to their own personalities. In that city, a **look-ahead teacher** is distilled into a neural network and fine-tuned with PPO. The motorbike population is then **co-evolved** to find situations that are hard yet still realistic. Finally, the knowledge is transferred to a **student that sees only through cameras**, inside CARLA.
+**LOTUS** (the lotus is Vietnam's national flower) is a complete pipeline from simulation to a camera-only car. It starts with a **procedurally generated 2D Vietnam**: city junctions with countdown timers, 5- and 6-arm junctions, roundabouts, narrow alleys, a market street, a highway with a median, a motorbike lane and U-turn gaps, a level crossing, a village road with buffalo and a flooded stretch, and a mountain pass with hairpins, all on hilly terrain. Hundreds of motorbikes weave through gaps according to their own personalities, and pedestrians cross wherever they like. In that city, a **look-ahead teacher** is distilled into a neural network and fine-tuned with PPO. The motorbike population is then **co-evolved** to find situations that are hard yet still realistic. Finally, the knowledge is transferred to a **student that sees only through cameras**, inside CARLA.
 
 <details open>
 <summary><b>Contents</b></summary>
@@ -45,13 +45,13 @@
 
 | | |
 |---|---|
-| 🏙️ **Procedural city** | Grids of 1×1 to 3×3 junctions, three road classes, signalised or unsignalised junctions, T-junctions. Every training scene is a new city, so the car learns to generalise instead of memorising one junction. |
-| 🛵 **Motorbikes with personality** | Each road user has its own boldness, patience, rule compliance and preferred speed. Motorbikes weave through gaps, creep over the stop line, run red lights, turn right on red and honk. Phase 3 adds riding against traffic, cutting in, cutting the corner on left turns and sudden braking. |
+| 🗺️ **Procedural Vietnam** | Eight map types (below), from a single roundabout to a mixed region with all of them. Roads follow the terrain, so there are real slopes, and buildings, market stalls, hills and big vehicles hide what is behind them. Every training scene is a new map, so the car learns to generalise instead of memorising one junction. |
+| 🛵 **Motorbikes with personality** | Each road user has its own boldness, patience, rule compliance and preferred speed. Motorbikes weave through gaps, creep over the stop line, run red lights, turn right on red and honk. Phase 3 adds riding against traffic, cutting in, cutting the corner on left turns, sudden braking and jaywalking. Pedestrians, buffalo, tractors, buses and trains share the road too. |
 | 🔮 **Look-ahead teacher** | Every 0.2 s the teacher copies the world around the car and tries several options 2.4 s into the future, over several random futures. On the fixed test suite it caused no collisions. |
 | 🎓 **Distillation + DAgger + PPO** | A DeepSets network imitates the teacher, is relabelled on the states its own driving reaches, and is then fine-tuned with PPO. |
 | 🧬 **Co-evolution with a realism filter** | MAP-Elites finds hard and diverse traffic scenarios. A filter with built-in thresholds rejects "suicidal" motorbike behaviour that no real rider would show. |
 | 📷 **Camera student** | Three cameras feed a frozen foundation model (DINOv3 or V-JEPA 2), with auxiliary tasks: signal colour and an occupancy grid. The student learns with DAgger in CARLA. |
-| 🌐 **Runs in the browser** | Open `web/lotus.html`: choose who drives, generate a new city, see the 16 road users the network is looking at. |
+| 🌐 **Runs in the browser** | Open `web/lotus.html`: choose the map and who drives, generate a new one, see the 16 road users the network is looking at and what is hidden from it. |
 
 ## 🧭 Architecture
 
@@ -121,7 +121,7 @@ python pipeline.py --smoke
 
 If the output ends with a `"minutes": ...` line and `rl/runs_smoke/` contains `pipeline_summary.json`, your machine is ready. The numbers in this mode are low because the networks see only a few hundred samples. That is expected.
 
-To watch the simulation, open `web/lotus.html` in a browser.
+To watch the simulation, open `web/lotus.html` in a browser. For the Ho Chi Minh City map, serve the folder first: `cd web && python -m http.server`, then open `http://localhost:8000/lotus.html`.
 
 ## 🚀 Run the full pipeline
 
@@ -176,9 +176,61 @@ Rough timings on a 32-core server with one GPU:
 
 ### Phase 1 · 2D simulation
 
-No training. The simulation core lives in `web/sim.js` and runs both in the browser and in Node.
+### Ho Chi Minh City (real map, OpenStreetMap)
 
-<img src="docs/images/city.jpg" width="100%" alt="Overview of a 3x3 junction city">
+Training, evaluation and the CARLA export all use **real Ho Chi Minh City** by default. The data come from OpenStreetMap (© OpenStreetMap contributors, ODbL) and include:
+- every mapped street and alley with its name, number of lanes, one-way direction and speed limit;
+- turn bans, traffic signals, roundabouts, flyovers and tunnels with their levels;
+- the North–South railway with its level crossings, and Metro line 1 on its viaduct and in its tunnel;
+- rivers and canals, parks, building footprints, bus stops, and the names of junctions and landmarks.
+
+The current build has 450,270 junctions, 536,013 road links, 2,152 signalised junctions, 381 roundabouts, 73 level crossings and 442 turn bans.
+
+The simulation runs on a **window of the city about 1.2 km across**. Roads crossing its edge become entries and exits; dead-end alleys become homes. Each episode starts at a different busy junction somewhere in the city.
+
+In the browser:
+- search for a place, accents optional: *Bảy Hiền*, *Hàng Xanh*, *Lăng Cha Cả*, *Ngã sáu Cộng Hòa*…;
+- or open the *Whole city* minimap and click anywhere to drive there;
+- the page needs to be served over HTTP so it can fetch the map tiles: `cd web && python -m http.server`, then open `http://localhost:8000/lotus.html`;
+- `?place=Hàng Xanh` or `?at=x,y` opens a given spot.
+
+Rebuild the data, for example to get newer OpenStreetMap edits:
+
+```bash
+# 1. download the Vietnam extract (~330 MB, updated daily) from download.geofabrik.de/asia/vietnam.html
+mkdir -p data/osm && curl -L -o data/osm/vietnam-latest.osm.pbf https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+# 2. cut out Ho Chi Minh City (~1 min, needs: pip install osmium)
+python data/extract_hcm.py data/osm/vietnam-latest.osm.pbf data/hcm
+# 3. build the road network and the tiles in web/hcm/ (~30 s)
+node --max-old-space-size=8000 data/build_hcm.js data/hcm web/hcm
+```
+
+What is not real:
+- **Traffic is simulated.** OpenStreetMap has no traffic counts or signal timings, so signal phases come from the road sizes.
+- **Houses are partly generated.** OpenStreetMap has footprints for only some houses; the rest are filled with row houses facing the local street grid.
+- **Alleys and signs missing from OpenStreetMap are not invented.** Signs come from the rules: no entry at the far end of one-way streets, no-left / no-right / no-U-turn from turn bans, and the stop and give-way signs that are mapped.
+- **Train timetables are estimates.**
+
+The generated maps below are still available (`--presets city,alley`), and are used when the city data are missing.
+
+#### Generated maps
+
+No training. The map generator lives in `web/world.js` and the traffic in `web/sim.js`; both run in the browser and in Node.
+
+| Map (`preset`) | What it contains |
+|---|---|
+| `region` (default) | One mixed region: a 3×3 town with a diagonal avenue (5- and 6-arm junctions), a roundabout, a market street and a block of alleys; a highway with a median, a motorbike lane, U-turn gaps and bus stops; a mountain pass over a hill; a railway with two level crossings; a village road with buffalo, tractors and a flooded dip. |
+| `city` | Town grid with signals, skewed junctions and a market street |
+| `alley` | A block of 2–3 m alleys (*hẻm*) opening onto main roads, motorbikes only inside, parked bikes, blind corners |
+| `roundabout` | A large roundabout with signalised neighbours |
+| `highway` | Divided road with a motorbike lane, U-turn gaps, bus stops |
+| `rail` | Level crossings with barriers and trains on a timetable |
+| `rural` | Village road: buffalo, tractors, villages, bamboo, a flooded stretch |
+| `pass` | Mountain pass with hairpins, steep grades (up to 11%), forest and cliffs |
+
+In the browser, pick the map from the list or open `lotus.html?map=alley`.
+
+<img src="docs/images/city.jpg" width="100%" alt="Hàng Xanh area of Ho Chi Minh City from OpenStreetMap, with street names">
 
 ```bash
 cd web && python build.py          # builds web/lotus.html and embeds any trained networks found in rl/runs/
@@ -187,7 +239,7 @@ cd web && python build.py          # builds web/lotus.html and embeds any traine
 Quick check from Node:
 
 ```bash
-node -e 'const {Sim,cityMap}=require("./web/sim.js"); const s=new Sim(cityMap(7),7,0.9); for(let i=0;i<600;i++) s.step(); console.log(s.summary())'
+node -e 'Object.assign(global, require("./web/world.js")); const {Sim}=require("./web/sim.js"); const s=new Sim(cityMap(7,{preset:"region"}),7,0.8); for(let i=0;i<600;i++) s.step(); console.log(s.summary())'
 ```
 
 ### Phase 2 · Full-state teacher
@@ -205,7 +257,8 @@ Or all at once: `bash rl/run_phase2.sh`.
 <details>
 <summary><b>The RL problem (observation · action · reward)</b></summary>
 
-- **Observation (259 numbers):** speed, previous command, position in the lane; distance to the stop line, the junction exit and the goal; junction type, signal colour and countdown; 10 route waypoints ahead; the 16 nearest road users within 30 m (relative position and velocity, heading, size, true body-to-body gap, time and distance of closest approach, drifting sideways, braking).
+- **Observation (299 numbers):** speed, previous command, position in the lane; distance to the stop line, the junction exit and the goal; junction type, signal (or level-crossing barrier) colour and countdown; road grade now and 25 m ahead, sight distance, road width, a yield ahead, flood now and ahead, a pedestrian zone; 10 route waypoints ahead; the 16 nearest road users within 30 m (relative position and velocity, heading, size, true body-to-body gap, time and distance of closest approach, drifting sideways, braking, vulnerable, stationary).
+- **Occlusion:** road users hidden behind buildings, stalls, hills or bigger vehicles (a line-of-sight test on the height map) are left out of the observation. The teacher plans with the same view, and adds a phantom motorbike in a blind side street and a stalled vehicle just beyond the sight distance, so it slows down where a careful driver would.
 - **Action (every 0.2 s):** target speed (0–50 km/h) and target lateral position in the lane. A low-level controller tracks the speed with acceleration and jerk limits.
 - **Reward:**
   - +0.1 per metre of progress, +5 for reaching the goal;
@@ -226,7 +279,7 @@ python rl/coevolve.py --policy rl/runs/finetune_v2/final.json --init rl/runs/fin
 ```
 
 Each generation has four steps:
-1. **MAP-Elites** searches *scenario genomes*: density, motorbike share, personality distributions, and the rates of riding against traffic, cutting in, cutting the corner on left turns and sudden braking. The archive is a grid of *density × dominant behaviour*, and each cell keeps its hardest scenario.
+1. **MAP-Elites** searches *scenario genomes*: density, motorbike share, personality distributions, and the rates of riding against traffic, cutting in, cutting the corner on left turns and sudden braking, plus pedestrian numbers and the share who jaywalk. The archive is a grid of *density × dominant behaviour*, and each cell keeps its hardest scenario.
 2. **Realism filter:** rejects scenarios whose behaviour rates exceed plausible thresholds. The thresholds ship in `calib/priors_vn.json`; **no extra data is needed**.
 3. **PPO retraining:** half of the training scenes come from the pool of hard scenarios, the other half are ordinary traffic so the car does not forget.
 4. **Re-scoring the whole archive** with the new car. Cells the car has mastered become easy, and the search moves elsewhere.
@@ -236,12 +289,34 @@ Each generation has four steps:
 <details>
 <summary><b>(Optional) Calibrate the filter from real traffic video</b></summary>
 
-Only needed if you later want thresholds closer to reality. Trajectories from any source (fixed camera, drone, public dataset) exported to CSV with columns `frame,id,x,y[,cls]`, where x, y are metres on the ground plane. Then run:
+Only needed if you later want thresholds closer to reality. The real trajectories are used **only to set these thresholds**; they do not teach the car to drive.
+
+**1. Get trajectories.** No public Vietnamese trajectory set is ready to download yet; these work out of the box:
+
+| Dataset | Why | Where |
+|---|---|---|
+| OnSiteVRU (Shanghai) | dense e-bikes, metres, 25 Hz | [Kaggle](https://www.kaggle.com/datasets/zcyan2/mixed-traffic-trajectory-dataset-in-from-shanghai) |
+| UAV trajectories, Delhi/Noida | mixed, lane-free, two-wheeler heavy | [Zenodo](https://doi.org/10.5281/zenodo.17745347) |
+| HetroD (Taiwan) | right-hand traffic, scooters outnumber cars | [paper](https://arxiv.org/abs/2602.03447) (see its project page for access) |
+| UIT-ADrone (Ho Chi Minh City) | Vietnamese drone video, needs your own detector + tracker first | [project page](https://uit-together.github.io/datasets/UIT-ADrone/) |
+
+**2. Convert** to the common CSV (`frame,id,x,y,cls`, metres). Columns are detected automatically and printed; `--*-col` overrides them, `--scale` fixes units, and the printed two-wheeler speed shows at once if the units are wrong:
 
 ```bash
-python calib/fit_from_tracks.py tracks.csv --fps 30 --out calib/measured.json
-# then in configs/default.yaml: phase3.priors: calib/measured.json
+python calib/convert_tracks.py --preset onsitevru data/onsitevru/*.csv --out calib/tracks_onsitevru.csv
+python calib/convert_tracks.py --preset delhi     data/delhi/*.csv     --out calib/tracks_delhi.csv
+python calib/convert_tracks.py --preset hetrod    data/hetrod/*.csv    --out calib/tracks_hetrod.csv
+python calib/convert_tracks.py --preset generic my.csv --id-col track --t-col time --x-col px --y-col py --scale 0.05
 ```
+
+**3. Measure and merge** with the Vietnamese thresholds (each source is measured on its own; for every metric the looser bound wins, so ordinary Vietnamese behaviour is never rejected):
+
+```bash
+python calib/fit_from_tracks.py calib/tracks_delhi.csv calib/tracks_onsitevru.csv --merge calib/priors_vn.json --out calib/measured.json
+# then in configs/default.yaml: phase3.priors: calib/measured.json, and rerun phase 3: python pipeline.py --stages 3 --redo 3
+```
+
+Your own trajectories (fixed camera, drone) work too: any CSV with `frame,id,x,y[,cls]` in metres goes straight into `fit_from_tracks.py` (add `--fps`).
 
 The script measures the same quantities the simulator reports: share of time riding against traffic, cut-ins per vehicle-minute, sudden brakes per two-wheeler-minute, plus speed and acceleration distributions. You can try it first on simulated trajectories: `node calib/export_tracks.js --seconds 120 --out sim.csv`.
 
@@ -260,7 +335,7 @@ What runs inside:
 
 | Step | Standalone command | Description |
 |---|---|---|
-| Export the map | `node carla/export_xodr.js --seed 7 --out city7.xodr` | The city is exported to OpenDRIVE 1.4, with the curves inside junctions written as paramPoly3. Check it with `python carla/check_xodr.py city7.xodr`. |
+| Export the map | `node carla/export_xodr.js --seed 7 --preset region --out region7.xodr` | Any map is exported to OpenDRIVE 1.4: roads as chains of cubic pieces (paramPoly3) with an elevation profile and medians, motorbike lanes and sidewalks; inside every junction one connecting road per movement along the exact path of the 2D core. Check it with `python carla/check_xodr.py region7.xodr` (positions, headings and heights must meet). |
 | Collect data | `python carla/bridge.py collect --episodes 40 --teacher …` | Three 384×216 cameras at 5 Hz. Each frame stores the teacher's label, the car's speed, the route, the signal colour and the occupancy grid. |
 | Encode images | `python carla/student.py encode --data rl/runs/phase4/data --encoder dinov3` | Frozen encoder; features are cached so each frame is encoded once. |
 | Train | `python carla/student.py train --data … --out student.pt` | The head learns the action and two auxiliary tasks (signal colour, occupancy grid). |
@@ -287,14 +362,23 @@ All main parameters live in [`configs/default.yaml`](configs/default.yaml):
 
 ## 📊 Results
 
-**Phase 2, fixed suite of 24 scenarios** (cities from 1×1 to 3×3, density 0.5 to 1.05):
+**Phase 2 on real Ho Chi Minh City** (24 windows of the city chosen at random, density 0.5 to 1.05):
 
-| Driver | Success ↑ | At-fault collision ↓ | Red light ↓ | Stuck > 2 min |
-|---|---|---|---|---|
-| Rule-based driver (IDM) | 54% | 8% | 0% | 38% |
-| **Look-ahead teacher** | **75%** | **0%** | **0%** | 17% (plus 8% hit by others) |
+| Driver | Success ↑ | At-fault collision ↓ | Red light ↓ | Hit by others | Stuck |
+|---|---|---|---|---|---|
+| Rule-based driver (IDM) | 62% | 21% | 0% | 8% | 8% |
+| **Look-ahead teacher** | **67%** | **8%** | **0%** | 0% | 25% |
 
-Most "stuck" episodes are genuine traffic jams at busy junctions. Results for the DAgger student, PPO fine-tuning, phase 3 and phase 4 will be added after running `python pipeline.py` on a server. These numbers come from a small suite; the 240-scenario suite will give more reliable figures.
+The real city is much harder than the generated maps: narrow two-way alleys where the car meets oncoming motorbikes nose to nose, dense queues at six-arm junctions, and pedestrians stepping out between parked bikes. The teacher's failures are mostly getting stuck in such knots; its two collisions were with pedestrians.
+
+**Phase 2 on the generated maps** (all eight map types, density 0.5 to 1.05; 48 episodes for IDM, 24 for the teacher):
+
+| Driver | Success ↑ | At-fault collision ↓ | Red light ↓ | Hit by others | Stuck |
+|---|---|---|---|---|---|
+| Rule-based driver (IDM) | 69% | 10% | 0% | 2% | 19% |
+| **Look-ahead teacher** | **96%** | **0%** | **0%** | 4% | 0% |
+
+The rule-based driver does well on the highway and the mountain pass and struggles in alleys, at the roundabout and in the busy town grid, where it waits for gaps that never come. Results for the DAgger student, PPO fine-tuning, phase 3 and phase 4 will be added after running `python pipeline.py` on a server. `node rl/eval.js --presets alley,pass` evaluates on chosen map types only, and the summary has a `by_preset` breakdown.
 
 ## 🗂️ Repository layout
 
@@ -304,7 +388,10 @@ Autopilot-RL/
 ├── configs/default.yaml     # all main parameters
 ├── monitor/                 # live training monitor: server.py (stdlib web server) + dashboard.html
 ├── web/                     # Phase 1 + shared code
-│   ├── sim.js               #   simulation core: city, signals, motorbikes, scenario genomes, world copies
+│   ├── world.js             #   map generator: road network, terrain, buildings, occlusion, eight map presets
+│   ├── osm.js               #   Ho Chi Minh City: tiles, windows of the real city, place search
+│   ├── hcm/                 #   the city as tiles (built by data/build_hcm.js)
+│   ├── sim.js               #   traffic: signals, barriers, motorbikes, pedestrians, buffalo, trains, scenario genomes
 │   ├── env.js               #   RL environment; SetPolicy/MLPPolicy run networks in the browser and in Node
 │   ├── planner.js           #   look-ahead teacher, rule-based driver
 │   ├── render.js, ui.js, template.html, build.py   # simulation page
@@ -319,11 +406,12 @@ Autopilot-RL/
 │   ├── train.py, sb3_train.py, worker.js   # PPO/SAC from scratch (for comparison)
 │   └── run_phase2.sh
 ├── carla/                   # Phase 4
-│   ├── export_xodr.js, check_xodr.py       # city → OpenDRIVE, and a checker
+│   ├── export_xodr.js, check_xodr.py       # map → OpenDRIVE, and a checker
 │   ├── bridge_worker.js, bridge.py         # bridge: the 2D core is the truth, CARLA renders
 │   ├── student.py                          # frozen encoder + head + auxiliary tasks
 │   └── phase4.py                           # DAgger loop in CARLA
 ├── calib/                   # realism thresholds (+ optional calibration from real trajectories)
+├── data/                    # extract_hcm.py, build_hcm.js: OpenStreetMap -> Ho Chi Minh City road network
 └── docs/images/
 ```
 
@@ -371,7 +459,8 @@ DINOv3 is gated on Hugging Face. Accept the licence on the model page, then run 
 - [x] Phase 3: new behaviours, MAP-Elites, realism filter, co-evolution
 - [x] Phase 4: OpenDRIVE export, CARLA bridge, camera student, DAgger
 - [ ] Full run on a server and updated results table
-- [ ] Real maps from OpenStreetMap (a specific junction in Hanoi or Saigon)
+- [x] Real map of Ho Chi Minh City from OpenStreetMap (streets, alleys, one-way streets, turn bans, signals, flyovers, rail, metro)
+- [ ] Hanoi and other cities with the same pipeline
 - [ ] (Optional) Calibrate thresholds from real-video trajectories
 - [ ] Comparison with learned world models (DreamerV3, TD-MPC2)
 - [ ] Pedestrians crossing

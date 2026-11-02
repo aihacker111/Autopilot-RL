@@ -1,6 +1,8 @@
 // Node worker: runs N copies of the environment and talks JSON lines over stdin/stdout.
 const path = require("path");
 const W = path.join(__dirname, "..", "web");
+Object.assign(global, require(path.join(W, "world.js")));
+Object.assign(global, require(path.join(W, "osm.js")));
 Object.assign(global, require(path.join(W, "sim.js")));
 const { EgoEnv, ENV } = require(path.join(W, "env.js"));
 const rl = require("readline").createInterface({ input: process.stdin });

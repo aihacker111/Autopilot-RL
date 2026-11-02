@@ -5,3 +5,6 @@ __pycache__/
 *.zip
 *.bin
 *.xodr
+data/osm/
+data/hcm/
+web/hcm/

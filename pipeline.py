@@ -108,7 +108,7 @@ def phase3(c, W, dev, force, redo, policy, init):
 
 def phase4(c, dev, teacher, smoke):
     cmd = [PY, os.path.join(CARLA, "phase4.py"), "--teacher", teacher, "--rounds", c["rounds"], "--episodes", c["episodes"], "--eval-episodes", c["eval_episodes"], "--encoder", c["encoder"],
-           "--epochs", c["epochs"], "--map-seed", c["map_seed"], "--nx", c["nx"], "--ny", c["ny"], "--host", c["carla_host"], "--port", c["carla_port"], "--device", dev, "--out", os.path.join(RUNS, "phase4")]
+           "--epochs", c["epochs"], "--map-seed", c["map_seed"], "--preset", c.get("preset", "hcm"), "--place", c.get("place", "Ngã tư Bảy Hiền"), "--host", c["carla_host"], "--port", c["carla_port"], "--device", dev, "--out", os.path.join(RUNS, "phase4")]
     stage("4.carla")
     sh(cmd + (["--dry-run"] if smoke else []))
     stage("4.carla", "done")
@@ -144,7 +144,7 @@ if __name__ == "__main__":
         RUNS = os.path.join(ROOT, "rl", "runs_smoke")
         cfg["phase2"].update(eval_n=6, rounds=1, decisions=300, epochs=5, ft_steps=2048); cfg["phase2"]["gate"].update(min_ok=0, max_crash=1)
         cfg["phase3"].update(gens=1, budget=8, batch=4, episodes=1, ft_steps=1024, heldout=2); cfg["phase3"]["gate"]["max_default_drop"] = 1
-        cfg["phase4"].update(encoder="tiny", rounds=1, episodes=2, eval_episodes=1, epochs=3, nx=2, ny=2)
+        cfg["phase4"].update(encoder="tiny", rounds=1, episodes=2, eval_episodes=1, epochs=3, preset="city")
         a.force = True
     W = (os.cpu_count() or 4) - 2 if cfg["workers"] == "auto" else int(cfg["workers"]); W = max(1, min(W, 64))
     try: import torch; dev = ("cuda" if torch.cuda.is_available() else "cpu") if cfg["device"] == "auto" else cfg["device"]

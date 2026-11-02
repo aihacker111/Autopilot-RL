@@ -1,3 +1,5 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>LOTUS Simulator</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -32,6 +34,7 @@
   --go: #3fd07f; --wait: #f0b23a; --stop: #ff6a5c; --teal: #36d9c8; --teal-soft: rgba(54, 217, 200, .14); --shadow: 0 12px 34px rgba(0, 0, 0, .45), 0 1px 0 rgba(255, 255, 255, .05) inset; color-scheme: dark }
 html, body { height: 100%; }
 body { background: var(--ground); color: var(--ink); font-family: var(--f-body); overflow: hidden; -webkit-font-smoothing: antialiased; }
+[hidden] { display: none !important; }
 #stage { position: fixed; inset: 0; touch-action: none; cursor: grab; }
 #stage.drag { cursor: grabbing; } #stage.hot { cursor: pointer; }
 #cv { width: 100%; height: 100%; display: block; }
@@ -130,7 +133,7 @@ input[type=range] { grid-column: span 2; width: 100%; accent-color: var(--paint)
 .tally { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .tally > div { background: var(--teal-soft); border-radius: 8px; padding: 6px 8px; min-width: 0; }
 .tally .v { font: 700 17px/1.1 var(--f-data); font-variant-numeric: tabular-nums; }
-.tally .lbl { font-size: 9px; letter-spacing: .06em; }
+.tally .lbl { font-size: 9.5px; letter-spacing: .05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tally .ok .v { color: var(--go); } .tally .crash .v { color: var(--stop); } .tally .red .v, .tally .timeout .v { color: var(--wait); }
 .avsub { font-size: 11.5px; color: var(--ink-2); line-height: 1.45; }
 .avsub b { color: var(--ink); font-family: var(--f-data); }
@@ -149,7 +152,19 @@ input[type=range] { grid-column: span 2; width: 100%; accent-color: var(--paint)
 @media (max-height: 820px) and (min-width: 681px) { #tl .brand p { display: none; } .curvebox { display: none; } }
 .brandrow { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; } .brandrow .tag { margin-top: 0; }
 .mini-btn { height: 26px; padding: 0 10px; font-size: 11.5px; border: 1px solid var(--line); }
+select.mini-btn { padding: 0 6px; background: transparent; color: var(--ink); }
 .pj { font: 700 11px var(--f-data); color: var(--ink-2); background: var(--line); padding: 2px 6px; border-radius: 6px; }
+.search { margin-top: 10px; position: relative; }
+.search input { width: 100%; box-sizing: border-box; height: 32px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel-solid); color: var(--ink); padding: 0 10px; font: 500 12.5px var(--f-body); }
+.results { position: absolute; left: 0; right: 0; top: 36px; z-index: 5; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); max-height: 260px; overflow: auto; }
+.results:empty { display: none; }
+.results button { display: flex; width: 100%; justify-content: space-between; gap: 8px; text-align: left; border: 0; background: none; color: var(--ink); font: 500 12.5px var(--f-body); padding: 7px 10px; cursor: pointer; }
+.results button:hover, .results button:focus-visible { background: var(--line); }
+.results button span { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+.attrib { margin-top: 8px; font-size: 10.5px; color: var(--ink-3); line-height: 1.4; }
+.miniTabs { display: flex; gap: 6px; margin-bottom: 6px; } .miniTabs .btn[aria-pressed="true"] { background: var(--paint-soft); }
+.loading { position: fixed; inset: 0; display: grid; place-items: center; z-index: 4; pointer-events: none; }
+.loading span { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; font: 600 13px var(--f-body); box-shadow: var(--shadow); }
 .minicard { padding: 8px; } #mini { width: 100%; height: 190px; display: block; border-radius: 8px; cursor: pointer; }
 @media (max-height: 860px) and (min-width: 681px) { #tr .mix { display: none; } }
 @media (max-width: 900px) { #tr { width: 230px; } #tl { width: 260px; } }
@@ -184,8 +199,13 @@ input[type=range] { grid-column: span 2; width: 100%; accent-color: var(--paint)
   <div class="card brand">
     <h1><svg class="mark" viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="lmt" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#0b8c80"/><stop offset="1" stop-color="#35cbbb"/></linearGradient></defs>
 <rect width="120" height="120" rx="28" fill="#15181b"/><rect x=".75" y=".75" width="118.5" height="118.5" rx="27.3" fill="none" stroke="var(--logo-ring, transparent)" stroke-width="1.5"/><rect x="-4.80" y="-9.00" width="9.60" height="18.00" rx="4.80" fill="#f2b632" transform="translate(31 31) rotate(-8)"/><rect x="-4.80" y="-9.00" width="9.60" height="18.00" rx="4.80" fill="#f2b632" transform="translate(89 33) rotate(8)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#f2b632" transform="translate(25 64) rotate(-4)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#ef6f4c" transform="translate(50 73) rotate(5)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#f2b632" transform="translate(94 70) rotate(7)"/><rect x="-4.80" y="-9.00" width="9.60" height="18.00" rx="4.80" fill="#f2b632" transform="translate(85 101) rotate(-6)"/><rect x="-4.48" y="-8.40" width="8.96" height="16.80" rx="4.48" fill="#ef6f4c" transform="translate(27 98) rotate(4)"/><path d="M50 106 C50 88 75 84 73 65 C71 49 58 50 58 36" fill="none" stroke="url(#lmt)" stroke-width="10" stroke-linecap="round"/><path d="M58 14 L71 35 L45 35 Z" fill="#35cbbb" stroke="#35cbbb" stroke-width="5" stroke-linejoin="round"/></svg>LOTUS</h1>
-    <p>A procedurally generated neighbourhood: signalised crossroads, unsignalised junctions, T-junctions, main roads and side streets. The car with the teal outline drives itself.</p>
-    <div class="brandrow"><span class="tag" id="cityTag"><i></i>Sample district</span><button class="btn mini-btn" id="newCity" title="Generate another district">New map</button></div>
+    <p id="brandP">Procedurally generated Vietnamese roads: downtown junctions, a roundabout, alleys, a market, a highway, a level crossing, rice fields and a mountain pass. The car with the teal outline drives itself.</p>
+    <div class="brandrow"><span class="tag" id="cityTag"><i></i>Sample district</span><select class="btn mini-btn" id="preset" aria-label="Kind of map"><option value="hcm" id="optHcm">Ho Chi Minh City</option><option value="region">Mixed region</option><option value="city">Town</option><option value="alley">Alleys</option><option value="roundabout">Roundabout</option><option value="highway">Highway</option><option value="rail">Level crossing</option><option value="rural">Countryside</option><option value="pass">Mountain pass</option></select><button class="btn mini-btn" id="newCity" title="Generate another map of this kind">New map</button></div>
+    <div class="search" id="searchBox" hidden>
+      <input id="placeQ" type="search" placeholder="Find a place: Bảy Hiền, Hàng Xanh, Lăng Cha Cả…" autocomplete="off" aria-label="Find a place in Ho Chi Minh City">
+      <div class="results" id="placeRes" role="listbox"></div>
+    </div>
+    <div class="attrib" id="attrib" hidden></div>
   </div>
   <div class="card phase" aria-live="off">
     <div class="dirs"><span class="lamp" id="lampMain"></span><span id="phaseJ" class="pj">Junction 1</span><span id="phaseName">East – West</span></div>
@@ -199,10 +219,10 @@ input[type=range] { grid-column: span 2; width: 100%; accent-color: var(--paint)
     <div class="training" id="avTraining" hidden><i></i><span></span></div>
     <div class="avlive"><span>Episode <b id="avEp">1</b></span><span id="avRoute">–</span><span><b id="avSpeed">0 km/h</b></span><span>Reward <b id="avRet">0</b></span></div>
     <div class="tally">
-      <div class="ok"><div class="lbl">Completed</div><div class="v" id="ta_ok">0</div></div>
-      <div class="crash"><div class="lbl">Crash</div><div class="v" id="ta_crash">0</div></div>
-      <div class="red"><div class="lbl">Ran red</div><div class="v" id="ta_red">0</div></div>
-      <div class="timeout"><div class="lbl">Timeout</div><div class="v" id="ta_timeout">0</div></div>
+      <div class="ok" title="Routes completed"><div class="lbl">Done</div><div class="v" id="ta_ok">0</div></div>
+      <div class="crash" title="Collisions caused by the car"><div class="lbl">Crash</div><div class="v" id="ta_crash">0</div></div>
+      <div class="red" title="Red lights run"><div class="lbl">Red</div><div class="v" id="ta_red">0</div></div>
+      <div class="timeout" title="Stuck until the route timed out"><div class="lbl">Stuck</div><div class="v" id="ta_timeout">0</div></div>
     </div>
     <div class="avsub">Mean time per route <b id="avTime">–</b><br><span id="avEval"></span></div>
     <div class="curvebox" id="curveBox" hidden>
@@ -228,7 +248,7 @@ input[type=range] { grid-column: span 2; width: 100%; accent-color: var(--paint)
     </div>
     <div class="mix" id="mix"></div>
   </div>
-  <div class="card minicard"><canvas id="mini" aria-label="Minimap, click to jump there"></canvas></div>
+  <div class="card minicard"><div class="miniTabs" id="miniTabs" hidden><button class="btn mini-btn" id="tabArea" aria-pressed="true">This area</button><button class="btn mini-btn" id="tabCity" aria-pressed="false">Whole city</button></div><canvas id="mini" aria-label="Minimap, click to jump there"></canvas></div>
 </div>
 
 <div class="hud card" id="bar">
@@ -259,9 +279,11 @@ input[type=range] { grid-column: span 2; width: 100%; accent-color: var(--paint)
   </div>
 </div>
 <div class="toast" id="toast" hidden role="status"><i></i><span></span></div>
+<div class="loading" id="loading" hidden><span>Loading the map…</span></div>
 <div class="hint" id="hint">Drag to pan · scroll to zoom · click a vehicle to inspect · click the minimap to jump</div>
 
 <script>
+/*WORLD*/
 /*SIM*/
 /*RENDER*/
 /*ENV*/
