@@ -1,0 +1,14 @@
+# Same v5 runtime/replay/evaluation; memory, extra ensemble, curriculum and new
+# distillation terms disabled for a controlled baseline. Compare equal budgets.
+v5:
+  out: rl/runs/lotus_v5_baseline
+  steps: 1000000
+  memory: false
+  ensemble: 1
+  tracking: false
+  lateral_shield: false
+  planner_coef: 0.0
+  shield_coef: 0.0
+  uncertainty_cost: 0.0
+  uncertainty_beta: 0.0
+  evo_every: 0

@@ -646,13 +646,13 @@ class Sim {
   /* a copy of the world around (cx, cy) for look-ahead planning: no spawning, no statistics, shared map and paths */
   cloneLocal(cx, cy, r) {
     const c = Object.create(Sim.prototype);
-    c.map = this.map; c.paths = this.paths; c.t = this.t; c.density = 0; c.nextId = this.nextId; c.nextAgent = this.nextAgent; c.genome = this.genome;
+    c.map = this.map; c.paths = this.paths; c.t = this.t; c.density = 0; c.nextId = this.nextId; c.nextAgent = this.nextAgent; c.genome = this.genome; c.brain = this.brain; c.npcStd = this.npcStd ? this.npcStd.slice() : null;
     const st = this.rand.st.a; c.rand = rngFrom(0); c.rand.st.a = st;
     c.stats = { exited: [], redRuns: [], nearMiss: [], collisions: 0, honks: 0, squeezes: 0, crossings: 0 };
     c.pairSeen = new Map(); c.grid = new Map(); c.boxStopped = {}; c.noSpawn = true; c.noStats = true; c.sources = []; c.walkPop = new Map(); c.pedRate = this.pedRate; c.pJay = this.pJay;
     c.vehicles = []; c.agents = [];
     const r2 = r * r;
-    for (const v of this.vehicles) if ((v.x - cx) ** 2 + (v.y - cy) ** 2 < r2) { const u = Object.assign(Object.create(Vehicle.prototype), v); if (v.ctrl) u.ctrl = { ...v.ctrl }; c.vehicles.push(u); }
+    for (const v of this.vehicles) if ((v.x - cx) ** 2 + (v.y - cy) ** 2 < r2) { const u = Object.assign(Object.create(Vehicle.prototype), v); if (v.ctrl) u.ctrl = { ...v.ctrl }; if (v.route) u.route = v.route.map(r => ({ ...r })); if (v.brainAct) u.brainAct = { ...v.brainAct }; c.vehicles.push(u); }
     for (const a of this.agents) if (a.kind !== "train" && (a.x - cx) ** 2 + (a.y - cy) ** 2 < r2) c.agents.push(a.static ? a : Object.assign(Object.create(Agent.prototype), a, a.cross ? { cross: { ...a.cross } } : {}));
     return c;
   }

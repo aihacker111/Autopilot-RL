@@ -1,0 +1,6 @@
+# Python >=3.12; install a CUDA-compatible PyTorch build for your GPU first.
+# Actual runtime versions are recorded and checked by each run's metadata.json.
+torch>=2.5,<3
+numpy>=1.26,<3
+PyYAML>=6,<7
+pytest>=8,<10

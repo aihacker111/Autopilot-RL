@@ -52,7 +52,7 @@ class EgoEnv {
     this.rand = rngFrom(this.seed * 104729 + 11);
     this.densityRange = opts.densityRange || [0.4, 1.05];
     this.fixedDensity = opts.density;
-    this.mapOpts = opts.mapOpts || null;               // fixed map options ({preset}), or a random preset when null
+    this.allowedCentres = opts.allowedCentres || null; this.mapOpts = opts.mapOpts || null;               // fixed map options ({preset}), or a random preset when null
     this.reseedEvery = opts.reseedEvery ?? 3000;       // decisions between fresh maps
     this.shaping = opts.shaping ?? true;
     this.rampDecisions = opts.ramp || 0;
@@ -61,7 +61,7 @@ class EgoEnv {
     this.maxTime = opts.maxTime || 320;                 // seconds before a route times out
     this.terminalRed = opts.terminalRed ?? true;
     this.occlusion = opts.occlusion ?? true;           // the car only observes what it can see
-    this.rewardV2 = opts.reward === "v2";              // the world-model driver: heavier crashes (people most), defensive driving
+    this.rewardV5 = opts.reward === "v5"; this.rewardV2 = opts.reward === "v2" || this.rewardV5;              // the world-model driver: heavier crashes (people most), defensive driving
     this.rewardCarl = opts.reward === "carl";          // CaRL (Jaeger et al. 2025): route completion x soft penalty factors; infractions end the trip
     this.decisions = 0; this.nextReseed = this.reseedEvery; this.episodes = 0;
     this.sim = opts.sim || null; this.ego = null;
@@ -75,7 +75,7 @@ class EgoEnv {
     this.stageCentres = opts.stageCentres || null;     // replay: the window of every stage, as recorded
     this.stage = 0; this.target = 0; this.doneDist = 0; this.doneTime = 0;
     // v3: a safety shield on the speed command, from what the car senses (the light, the stop line, who is in or entering its path)
-    this.shield = !!opts.shield; this.lastExec = [0, 0]; this.intervened = 0;
+    this.lateralShield = !!opts.lateralShield; this.tracking = !!opts.tracking; this.trackSlots = []; this.shield = !!opts.shield; this.lastExec = [0, 0]; this.intervened = 0;
   }
   pickPreset() {
     if (this.mapOpts && this.mapOpts.preset) return this.mapOpts.preset;
@@ -98,7 +98,7 @@ class EgoEnv {
       if (this.poolW && this.poolW.length === this.pool.length) { let q = this.rand() * this.poolW.reduce((a, b) => a + b, 0), k = 0; while (k < this.pool.length - 1 && q >= this.poolW[k]) { q -= this.poolW[k]; k++; } genome = this.pool[k]; }
       else genome = this.pool[Math.floor(this.rand() * this.pool.length)];
     }
-    const extra = preset !== "hcm" ? {} : Object.assign(this.half ? { half: this.half } : {}, this.stageCentres && this.stageCentres[this.stage] ? { centre: this.stageCentres[this.stage] } : {});
+    const extra = preset !== "hcm" ? {} : Object.assign(this.allowedCentres && this.allowedCentres.length ? { centre: this.allowedCentres[Math.floor(this.rand() * this.allowedCentres.length)] } : {}, this.half ? { half: this.half } : {}, this.stageCentres && this.stageCentres[this.stage] ? { centre: this.stageCentres[this.stage] } : {});
     this.sim = new Sim(cityMap(ms, Object.assign({}, this.mapOpts || {}, { preset }, extra)), Math.floor(this.rand() * 1e9), d, { warmup: 350, genome });
     this.starts = null;
   }
@@ -138,7 +138,7 @@ class EgoEnv {
     if (this.routeMs && !(spec && spec.stage)) {   // a new trip: draw its length
       const W = this.routeW || this.routeMs.map(() => 1); let q = this.rand() * W.reduce((a, b) => a + b, 0), L = this.routeMs[0];
       for (let k = 0; k < this.routeMs.length; k++) { if (q < W[k]) { L = this.routeMs[k]; break; } q -= W[k]; }
-      this.target = L; this.doneDist = 0; this.doneTime = 0; this.stage = 0;
+      this.target = L; this.doneTravel = 0; this.doneDist = 0; this.doneTime = 0; this.stage = 0;
     }
     if (this.target) { this.routeM = Math.min(this.stageMax, Math.max(150, this.target - this.doneDist)); this.routeLegs = 30; this.noExtend = false; }
     if (!this.sim || (this.reseedEvery && this.decisions >= this.nextReseed)) { this.newSim(); this.nextReseed = this.decisions + this.reseedEvery; }
@@ -177,7 +177,7 @@ class EgoEnv {
     }
     const e = this.ego;
     this.t0 = this.sim.t; this.prevAct = [this.speedToAct(e.v), 0]; this.lastProg = this.progress(); this.result = null; this.crashWith = null;
-    this.redLegs = new Set(); this.ep = { ret: 0, steps: 0, red: 0, minGap: 9 };
+    this.redLegs = new Set(); this.trackSlots = []; this.ep = { ret: 0, steps: 0, red: 0, minGap: 9, shield: 0, lateralShield: 0, jerk: 0, contact: 0, person: 0 }; this.startProg = this.progress(); this.lastAcc = 0;
     this.routeLen = this.totalLen();
     this.timeout = Math.min(this.maxTime, 60 + (this.routeLen - this.progress()) / 2.5);
     return this.observe();
@@ -191,12 +191,16 @@ class EgoEnv {
   lastLeg() { return this.ego.legs >= this.ego.route.length; }
   step(act) {
     const sim = this.sim, e = this.ego;
-    const a0 = Math.max(-1, Math.min(1, act[0])), a1 = Math.max(-1, Math.min(1, act[1]));
+    const a0 = Math.max(-1, Math.min(1, act[0])); let a1 = Math.max(-1, Math.min(1, act[1])); const requestedLat = a1, beforeV = e.v;
     let vT = (a0 + 1) / 2 * ENV.VMAX_CMD; this.intervened = 0;
     if (this.shield) { const cap = this.shieldCap(); if (vT > cap + 0.3) { this.intervened = vT - cap; vT = Math.max(0, cap); } }   // never faster than it can stop for
+    if (this.shield && this.lateralShield) {
+      a1 = this.safeLat(a1); if (a1 !== requestedLat) this.ep.lateralShield++;
+    }
     e.ctrl = { vT, lat: a1 }; this.lastExec = [vT / ENV.VMAX_CMD * 2 - 1, a1];
     let r = 0, done = false, crash = null;
     if (this.staticAhead(15)) e.overtake = sim.t + 3;   // own lane blocked by something parked: the oncoming half may be used to go round it
+    const stats0 = { ...sim.stats };
     const leg0 = e.legs, p0 = e.path, light0 = p0.signal ? sim.light(p0.junc, p0.from) : null, front0 = e.s + e.l2;
     for (let k = 0; k < ENV.REPEAT; k++) { sim.step(); crash = this.collision(); if (crash) break; }
     // progress along the route
@@ -223,14 +227,18 @@ class EgoEnv {
     if (minGap < 0.6) r -= 0.06 * (1 - minGap / 0.6);
     r -= 0.12 * warn;
     this.ep.minGap = Math.min(this.ep.minGap, minGap);
-    r -= 0.02 * Math.abs(a0 - this.prevAct[0]) + 0.02 * Math.abs(a1 - this.prevAct[1]);
-    this.prevAct = [a0, a1];
+    const usedA0 = this.rewardV5 ? this.lastExec[0] : a0;
+    r -= 0.02 * Math.abs(usedA0 - this.prevAct[0]) + 0.02 * Math.abs(a1 - this.prevAct[1]);
+    this.prevAct = [usedA0, a1];
+    const acceleration = (e.v - beforeV) / (DT * ENV.REPEAT);
+    this.ep.jerk += Math.abs(acceleration - this.lastAcc) / (DT * ENV.REPEAT); this.lastAcc = acceleration;
+    if (this.intervened) this.ep.shield++;
     const lp = e.path, li = Math.min(lp.n - 1, Math.round(e.s / lp.ds));
     if (e.v > lp.VMAX[li] + 1.5) r -= 0.04 * (e.v - lp.VMAX[li] - 1.5);   // too fast for the bend, the market, the flood
     if (this.rewardV2) r -= defensiveCost(sim, e, this.sight);
-    if (this.intervened) r -= 0.03 * Math.min(5, this.intervened);   // the shield had to step in: drive so that it does not
+    if (this.intervened && !this.rewardV5) r -= 0.03 * Math.min(5, this.intervened);   // the shield had to step in: drive so that it does not
     if (crash) {
-      done = true; this.crashWith = crash.u; this.result = crash.fault ? "crash" : "hit";
+      done = true; this.ep.contact++; if (crash.u.kind === "ped" || crash.u.kind === "buffalo") this.ep.person++; this.crashWith = crash.u; this.result = crash.fault ? "crash" : "hit";
       if (!this.rewardV2) { if (crash.fault) r -= 10; }
       else r -= crash.fault ? (crash.u.kind === "ped" || crash.u.kind === "buffalo" ? 40 : 25) : 5;   // being hit: a defensive driver often avoids it
     }
@@ -246,9 +254,15 @@ class EgoEnv {
       if (minGap < 0.6) f *= 0.8; if (e.v > lp.VMAX[li] + 1.5) f *= 0.8; if (this.intervened) f *= 0.9; if (warn > 0.5) f *= 0.9;
       r = Math.max(0, prog - progBefore) / 100 * f;
     }
+    if (!this.ep.realism) this.ep.realism = { seconds: 0, vehSeconds: 0, twoSeconds: 0, instantStops: 0, cutIns: 0, suddenBrakes: 0, wrongSteps: 0, twoSteps: 0, collisions: 0 };
+    const rs = this.ep.realism; rs.seconds += DT * ENV.REPEAT; rs.vehSeconds += sim.vehicles.filter(v => !v.ego).length * DT * ENV.REPEAT;
+    rs.twoSeconds += sim.vehicles.filter(v => v.type === "moto" || v.type === "bike").length * DT * ENV.REPEAT;
+    for (const key of ["instantStops", "cutIns", "suddenBrakes", "wrongSteps", "twoSteps", "collisions"]) rs[key] += (sim.stats[key] || 0) - (stats0[key] || 0);
     this.ep.ret += r; this.ep.steps++; this.decisions++;
     const info = done ? { result: this.result, ret: this.ep.ret, time: this.doneTime + sim.t - this.t0, red: this.ep.red, minGap: this.ep.minGap, legs: e.route.length, dist: this.doneDist + prog, routeLen: this.target || this.routeLen,
-      stages: this.stage + 1, preset: sim.map.preset, kind: sim.map.nodes[e.route[0].j].kind, with: crash ? crash.u.type : null } : null;
+      shield: this.ep.shield, lateralShield: this.ep.lateralShield, meanJerk: this.ep.jerk / Math.max(1, this.ep.steps), contacts: this.ep.contact, personContacts: this.ep.person, travelled: (this.doneTravel || 0) + Math.max(0, prog - this.startProg), continuous: this.stage === 0, stages: this.stage + 1, preset: sim.map.preset, kind: sim.map.nodes[e.route[0].j].kind, with: crash ? crash.u.type : null } : null;
+    if (info) { info.realismExposure = { ...rs }; info.progressFraction = this.result === "ok" ? 1 : Math.max(0, Math.min(1, info.travelled / Math.max(1, this.target || this.routeLen - this.startProg))); }
+    if (info) info.realismStats = { instantStopsPerVehMin: rs.instantStops / Math.max(1e-6, rs.vehSeconds / 60), cutInsPerVehMin: rs.cutIns / Math.max(1e-6, rs.vehSeconds / 60), suddenBrakesPerTwoMin: rs.suddenBrakes / Math.max(1e-6, rs.twoSeconds / 60), npcCollisionsPerMin: rs.collisions / Math.max(1e-6, rs.seconds / 60), wrongWayShare: rs.wrongSteps / Math.max(1, rs.twoSteps), hitRate: this.result === "hit" ? 1 : 0 };
     return { obs: this.observe(), r, done, info };
   }
   /* v3 safety shield: the highest speed command that still lets the car stop for what it senses. A red light (or an
@@ -277,13 +291,38 @@ class EgoEnv {
     }
     return cap;
   }
+  safeLat(request) {
+    const e = this.ego, [lo, hi] = this.sim.bounds(e), horizon = 1.2;
+    const target = a => lo + (a + 1) / 2 * (hi - lo);
+    const current = hi > lo ? Math.max(-1, Math.min(1, (e.d - lo) / (hi - lo) * 2 - 1)) : 0;
+    const cost = a => {
+      let risk = 0;
+      for (const u of this.seen || []) {
+        const dx = u.x - e.x, dy = u.y - e.y;
+        const fx = dx * e.tx + dy * e.ty, fy = dx * e.nx + dy * e.ny;
+        const rvx = (u.vx - e.vx) * e.tx + (u.vy - e.vy) * e.ty;
+        const rvy = (u.vx - e.vx) * e.nx + (u.vy - e.vy) * e.ny;
+        for (const t of [.4, .8, horizon]) {
+          const sideways = Math.max(-e.T.latV * t, Math.min(e.T.latV * t, target(a) - e.d));
+          const gapX = Math.abs(fx + rvx * t) - e.l2 - u.l2;
+          const gapY = Math.abs(fy + rvy * t - sideways) - e.w2 - u.w2;
+          if (gapX < .5 && gapY < .3) risk += Math.max(0, .3 - gapY) * (gapX < 0 ? 2 : 1);
+        }
+      }
+      return risk;
+    };
+    const initial = cost(request); if (initial <= 0) return request;
+    let best = request, bestCost = initial;
+    for (const a of [current, -1, -.5, 0, .5, 1]) { const c = cost(a); if (c + .05 < bestCost) { best = a; bestCost = c; } }
+    return best;
+  }
   /* v4 counterfactual: what would have happened with another action, held for k decisions, on a copy of the world around
      the car, with no shield (the point is to see the consequence, e.g. squeezing into that gap). The real environment is
      not touched. Each transition: observation after it, executed action, reward, done, terminal, contact, move (dx, dy, dh). */
   branch(act, k, radius = 45) {
     const e = this.ego, c = this.sim.cloneLocal(e.x, e.y, radius), b = Object.assign(Object.create(EgoEnv.prototype), this);
     b.sim = c; b.ego = c.vehicles.find((v) => v.ego); b.shield = false; b.noExtend = true;
-    b.ep = Object.assign({}, this.ep); b.redLegs = new Set(this.redLegs); b.prevAct = this.prevAct.slice();
+    b.ep = Object.assign({}, this.ep, this.ep.realism ? { realism: { ...this.ep.realism } } : {}); b.redLegs = new Set(this.redLegs); b.prevAct = this.prevAct.slice(); b.trackSlots = this.trackSlots.slice(); b.rand = rngFrom(0); b.rand.st.a = this.rand.st.a;
     const out = [];
     for (let i = 0; i < k; i++) {
       const x0 = b.ego.x, y0 = b.ego.y, h0 = b.ego.h, c0 = Math.cos(h0), s0 = Math.sin(h0);
@@ -305,8 +344,8 @@ class EgoEnv {
   }
   /* v3: the trip continues in a fresh window (the "stage" result of step): the same trip, its totals kept */
   nextStage() {
-    const keep = { ep: this.ep, doneDist: this.doneDist + this.routeLen, doneTime: this.doneTime + this.sim.t - this.t0, target: this.target };
-    this.doneDist = keep.doneDist; this.doneTime = keep.doneTime;
+    const keep = { ep: this.ep, doneDist: this.doneDist + this.routeLen, doneTime: this.doneTime + this.sim.t - this.t0, target: this.target, travelled: (this.doneTravel || 0) + Math.max(0, this.progress() - this.startProg) };
+    this.doneDist = keep.doneDist; this.doneTravel = keep.travelled; this.doneTime = keep.doneTime;
     this.stage++; this.newSim(); this.nextReseed = this.decisions + this.reseedEvery;
     const o = this.reset({ stage: true });
     this.ep = keep.ep; this.target = keep.target;
@@ -399,6 +438,12 @@ class EgoEnv {
     const nb = []; this.hidden = [];
     for (const u of sim.near(e, ENV.RANGE)) { const dx = u.x - e.x, dy = u.y - e.y, d2 = dx * dx + dy * dy; if (d2 < ENV.RANGE * ENV.RANGE) { if (this.visibleTo(e, u)) nb.push([d2, u]); else this.hidden.push(u); } }
     nb.sort((a, b) => a[0] - b[0]);
+    if (this.tracking) {
+      const nearest = nb.slice(0, ENV.K), byId = new Map(nearest.map(x => [x[1].id, x]));
+      const ordered = this.trackSlots.filter(id => byId.has(id));
+      for (const x of nearest) if (!ordered.includes(x[1].id)) ordered.push(x[1].id);
+      this.trackSlots = ordered; nb.splice(0, nb.length, ...ordered.map(id => byId.get(id)));
+    }
     this.seen = [];
     k = ENV.EGO_DIM + ENV.WP * 2;
     for (let j = 0; j < Math.min(ENV.K, nb.length); j++) {
@@ -519,7 +564,7 @@ class TDMPCPolicy extends SetPolicy {
     }
     return x;
   }
-  act(obs) {
+  encode(obs) {
     const n = obs.length, x = new Float32Array(n);
     for (let i = 0; i < n; i++) x[i] = Math.max(-8, Math.min(8, (obs[i] - this.mean[i]) / this.std[i]));
     const H = this.phi[this.phi.length - 1].out, mx = new Float32Array(H).fill(0), mn = new Float32Array(H); let cnt = 0;
@@ -530,11 +575,45 @@ class TDMPCPolicy extends SetPolicy {
     }
     if (cnt) for (let i = 0; i < H; i++) mn[i] /= cnt;
     const f = new Float32Array(this.egoDim + 2 * H); f.set(x.subarray(0, this.egoDim)); f.set(mx, this.egoDim); f.set(mn, this.egoDim + H);
-    const z = this.run(this.headL, f), out = this.run(this.piL, z);
-    return [Math.tanh(out[0]), Math.tanh(out[1])];   // the mean of the policy prior
+    return this.run(this.headL, f);
+  }
+  act(obs) {
+    const out = this.run(this.piL, this.encode(obs));
+    return [Math.tanh(out[0]), Math.tanh(out[1])];
   }
 }
-function makePolicy(spec) { return spec.type === "tdmpc" ? new TDMPCPolicy(spec) : spec.type === "set" ? new SetPolicy(spec) : new MLPPolicy(spec); }
+// Recurrent v5 prior. observeExecution must receive the action after the shield;
+// reset at every episode/map boundary. Forward math matches torch.nn.GRUCell.
+class RecurrentPolicy extends TDMPCPolicy {
+  constructor(spec) {
+    super(spec); this.latent = spec.latent; this.memory = spec.memory !== false;
+    const dec = b => { const bin = atobAny(b), bytes = Uint8Array.from(bin, c => c.charCodeAt(0)); return new Float32Array(bytes.buffer); };
+    this.gru = Object.fromEntries(Object.entries(spec.gru).map(([k, v]) => [k, dec(v)]));
+    this.post = spec.posterior.map(l => ({ ...l, W: dec(l.W), b: dec(l.b), ln: l.ln ? l.ln.map(dec) : null }));
+    this.reset();
+  }
+  reset() { this.h = new Float32Array(this.latent); this.previous = [0, 0]; }
+  observeExecution(action) { this.previous = Array.from(action); }
+  act(obs) {
+    const z = this.encode(obs), x = new Float32Array(z.length + 2); x.set(z); x.set(this.previous, z.length);
+    const L = this.latent, g = this.gru, ih = new Float64Array(3 * L), hh = new Float64Array(3 * L);
+    for (let j = 0; j < 3 * L; j++) {
+      ih[j] = g.bias_ih[j]; hh[j] = g.bias_hh[j];
+      for (let k = 0; k < x.length; k++) ih[j] += g.weight_ih[j * x.length + k] * x[k];
+      if (this.memory) for (let k = 0; k < L; k++) hh[j] += g.weight_hh[j * L + k] * this.h[k];
+    }
+    const next = new Float32Array(L), sigmoid = a => 1 / (1 + Math.exp(-a));
+    for (let j = 0; j < L; j++) {
+      const r = sigmoid(ih[j] + hh[j]), gate = sigmoid(ih[L + j] + hh[L + j]);
+      const n = Math.tanh(ih[2 * L + j] + r * hh[2 * L + j]);
+      next[j] = (1 - gate) * n + gate * (this.memory ? this.h[j] : 0);
+    }
+    this.h = next;
+    const belief = this.run(this.post, next), out = this.run(this.piL, belief);
+    return [Math.tanh(out[0]), Math.tanh(out[1])];
+  }
+}
+function makePolicy(spec) { return spec.type === "tdmpc_v5" ? new RecurrentPolicy(spec) : spec.type === "tdmpc" ? new TDMPCPolicy(spec) : spec.type === "set" ? new SetPolicy(spec) : new MLPPolicy(spec); }
 function atobAny(s) { return typeof atob === "function" ? atob(s) : Buffer.from(s, "base64").toString("binary"); }
 
-if (typeof module !== "undefined") module.exports = { EgoEnv, ENV, MLPPolicy, SetPolicy, TDMPCPolicy, makePolicy, defensiveCost };
+if (typeof module !== "undefined") module.exports = { EgoEnv, ENV, MLPPolicy, SetPolicy, TDMPCPolicy, RecurrentPolicy, makePolicy, defensiveCost };

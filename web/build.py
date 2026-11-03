@@ -12,14 +12,14 @@ import json, os, sys, glob, re
 HERE = os.path.dirname(os.path.abspath(__file__))
 rd = lambda p: open(os.path.join(HERE, p), encoding="utf-8").read()
 num = lambda p, pat: int(re.findall(pat, p)[0])
-DEFAULT_RUNS = [os.path.join(HERE, '..', 'rl', 'runs', d) for d in ('teacher_v2', 'finetune_v2', 'tdmpc2', 'tdmpc2_v4')]
+DEFAULT_RUNS = [os.path.join(HERE, '..', 'rl', 'runs', d) for d in ('teacher_v2', 'finetune_v2', 'tdmpc2', 'tdmpc2_v4', 'lotus_v5_full')]
 NPC_RUN = os.path.join(HERE, '..', 'rl', 'runs', 'npc', 'npc.json')
 
 
 def label(run, base, spec):
     """short button label, full name and description for one checkpoint file"""
     rname, steps = os.path.basename(os.path.normpath(run)), spec.get('steps', 0)
-    if spec.get('type') == 'tdmpc':
+    if spec.get('type') in ('tdmpc', 'tdmpc_v5'):
         k = f" {steps // 1000}k" if steps else ""
         after = f" after {steps // 1000}k training steps" if steps else ""
         return 'TD-MPC2' + k, 'world model (TD-MPC2)' + k, f"Policy prior of the TD-MPC2 world model{after}. In training it plans with its learned model of the world; here it drives with the prior alone."
@@ -49,7 +49,7 @@ def collect(runs, keep=4):
             try: spec = json.load(open(f))
             except (OSError, ValueError): continue   # being written right now
             if spec.get('type') != 'set' and len(spec.get('obsMean', '')) < 1000: continue   # skip old single-junction checkpoints
-            if spec.get('type') in ('set', 'tdmpc') and spec.get('egoDim') != 43: continue   # an older observation layout (before v3)
+            if spec.get('type') in ('set', 'tdmpc', 'tdmpc_v5') and spec.get('egoDim') != 43: continue   # an older observation layout (before v3)
             spec['short'], spec['name'], d = label(run, os.path.basename(f), spec)   # English labels, whatever name the checkpoint carries
             spec['desc'] = spec.get('desc') or d
             ck.append(spec)

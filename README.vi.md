@@ -1,3 +1,5 @@
+> **LOTUS v5 (P0/P1):** world model có trí nhớ, curriculum dùng full planner, resume đầy đủ và đánh giá độc lập. Xem [hướng dẫn train v5](docs/v5-training.md). Chạy: `python rl/v5_train.py --config configs/v5_full.yaml`.
+
 <div align="center">
 
 <picture>

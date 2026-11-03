@@ -19,7 +19,7 @@
   const planner = new LookaheadPlanner({ vTs: [0, 4, 8, 12], lats: [-0.6, 0, 0.6], M: 2, H: 10 });
   const drivers = [{ id: "planner", short: "Teacher", name: "look-ahead teacher", desc: "Every 0.2 s it copies the world around the car, tries 12 speed and lane-offset plans over the next 2 s in 2 random futures, and picks the plan that is safest in the worst case.", act: (env) => planner.plan(env) },
     { id: "idm", short: "Rules", name: "rule-based", desc: "Hand-written driver: follows the vehicle ahead (IDM) and stops for red and amber. The baseline every learned driver has to beat.", act: (env) => idmAct(env) }];
-  if (AV) for (const c of AV.ckpts) { const pol = makePolicy(c); drivers.push({ id: "nn" + c.steps, short: c.short, name: c.name || c.short, desc: c.desc, act: (env) => pol.act(curObs), nn: true, tdmpc: c.type === "tdmpc" }); }
+  if (AV) for (const c of AV.ckpts) { const pol = makePolicy(c); drivers.push({ id: "nn" + c.steps, short: c.short, name: c.name || c.short, desc: c.desc, policy: pol, act: (env) => pol.act(curObs), nn: true, tdmpc: c.type === "tdmpc" || c.type === "tdmpc_v5" }); }
   let drv = 0, curObs = null, lastAct = [0, 0], tally = null, crashMark = null, seeing = false;
   let replay = null, replayBusy = false;   // a recorded TD-MPC2 training episode being replayed (monitor page)
   let pickId = null, epOrder = [];          // an episode chosen in the list (null: the newest training episodes, in turn)
@@ -52,8 +52,8 @@
     }
     layers = new CityLayers(map, seed * 3 + 1, ppm, 80, W < 680 ? 10 : 16);
     sim = new Sim(map, seed, +$("density").value * (preset === "region" ? 0.8 : 1), { warmup: preset === "hcm" ? 150 : 400 });
-    env = new EgoEnv({ sim, reseedEvery: 0, seed: seed + 100 });
-    curObs = env.reset();
+    env = new EgoEnv({ sim, reseedEvery: 0, seed: seed + 100, tracking: true });
+    curObs = env.reset(); for (const d of drivers) if (d.policy && d.policy.reset) d.policy.reset();
     const real = map.nodes.filter((j) => j.type !== "bend"), sig = real.filter((j) => j.type === "signal").length;
     const named = preset === "hcm" ? (map.nodes.filter((j) => j.name).sort((a, b) => Math.hypot(a.x - map.centre[0], a.y - map.centre[1]) - Math.hypot(b.x - map.centre[0], b.y - map.centre[1]))[0] || {}).name : null;
     $("cityTag").lastChild.nodeValue = preset === "hcm" ? `${named || "HCMC"} · ${real.length} junctions · ${sig} signals` : `${map.name} #${seed} · ${real.length} junctions · ${sig} signals`;
@@ -283,7 +283,7 @@
     if (prevReplay !== drivers[i].replay || (drivers[i].src || "") !== ((drivers[prevDrv] || {}).src || "")) pickId = null;
     if (drivers[i].replay) { replay = null; nextReplay(); }
     else if (replay || prevReplay) { replay = null; newCity(citySeed); }   // back to a live simulation
-    else if (env && env.ego) { env.removeEgo(); curObs = env.reset(); }
+    else if (env && env.ego) { env.removeEgo(); curObs = env.reset(); for (const d of drivers) if (d.policy && d.policy.reset) d.policy.reset(); }
     if (sel && sel.ego) select(env.ego);
     updateTally(); drawCurve();
   }
@@ -385,14 +385,14 @@
         }
         if (m.v != null && m.v !== ver) {
           const spec = await (await fetch("/api/policy", { cache: "no-store" })).json();
-          ver = m.v; if (spec.type === "tdmpc" && spec.egoDim === 43) swap(spec);
+          ver = m.v; if (["tdmpc", "tdmpc_v5"].includes(spec.type) && spec.egoDim === 43) swap(spec);
         }
       } catch (e) { console.warn("live poll", e); } finally { busy = false; }
     }
     function swap(spec) {
       const pol = makePolicy(spec), k = Math.round((spec.steps || 0) / 1000) + "k";
       const isBest = /best/i.test(spec.name || "");
-      const d = { id: "tdmpc-live", nn: true, tdmpc: true, short: (isBest ? "Best " : "Prior ") + k, name: "TD-MPC2 policy prior " + k, act: (env) => pol.act(curObs),
+      const d = { id: "tdmpc-live", nn: true, tdmpc: true, short: (isBest ? "Best " : "Prior ") + k, name: "TD-MPC2 policy prior " + k, policy: pol, act: (env) => pol.act(curObs),
         desc: isBest ? `TD-MPC2's policy prior from its best checkpoint (${k} steps; most routes completed minus crashes on the fixed evaluation). Here it drives with the prior alone; the Training button replays it with its full planner.` : `TD-MPC2's policy prior, live from training: ${k} steps so far. Each new snapshot replaces it while it drives. In training it also plans with its learned model of the world; here it drives with the prior alone.` };
       let i = drivers.findIndex((x) => x.tdmpc); const first = i < 0;
       if (first) { drivers.push(d); i = drivers.length - 1; } else drivers[i] = d;
@@ -449,9 +449,9 @@
     }
     const snap = new Map(); for (const v of sim.vehicles) snap.set(v, [v.x, v.y, v.h]); for (const a of sim.agents) if (!a.static) snap.set(a, [a.x, a.y, a.h]);
     lastAct = drivers[drv].act(env);
-    const r = env.step(lastAct); curObs = r.obs;
+    const r = env.step(lastAct); curObs = r.obs; const activePolicy = drivers[drv] && drivers[drv].policy; if (activePolicy && activePolicy.observeExecution) activePolicy.observeExecution(env.lastExec);
     if (replay && r.done && r.info.result === "stage") {   // v3: the trip goes on in the next window
-      curObs = env.nextStage(); sim = env.sim; map = sim.map; layers = new CityLayers(map, replay.ep.replay.seed * 3 + 1 + env.stage, ppm, 80, W < 680 ? 10 : 16); mini.dirty = true;
+      curObs = env.nextStage(); if (activePolicy && activePolicy.reset) activePolicy.reset(); sim = env.sim; map = sim.map; layers = new CityLayers(map, replay.ep.replay.seed * 3 + 1 + env.stage, ppm, 80, W < 680 ? 10 : 16); mini.dirty = true;
       if (env.ego) { cam.x = env.ego.x; cam.y = env.ego.y; }
       toast(`New part of the trip (window ${env.stage + 1})`, "go"); return;
     }
@@ -465,7 +465,7 @@
         replay = null; setTimeout(nextReplay, 1200);
       }
     }
-    else if (r.done) { const old = env.ego; onEpisodeEnd(r.info); curObs = env.reset(); if (sel === old) select(env.ego); }
+    else if (r.done) { const old = env.ego; onEpisodeEnd(r.info); curObs = env.reset(); for (const d of drivers) if (d.policy && d.policy.reset) d.policy.reset(); if (sel === old) select(env.ego); }
     for (const v of [...sim.vehicles, ...sim.agents]) { if (v.static) continue; const s = snap.get(v); if (s) { v.px = s[0]; v.py = s[1]; v.ph = s[2]; } else { v.px = v.x; v.py = v.y; v.ph = v.h; } }
   }
 

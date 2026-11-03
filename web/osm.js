@@ -181,14 +181,14 @@ function benchCentre(city, k) { const name = HCM_BENCH[((k % HCM_BENCH.length) +
 // windows are reused (a map is never changed by a simulation), so phase 2/3 workers do not rebuild the same streets
 const HCM_CACHE = new Map();
 function hcmMapCached(city, cx, cy, opt = {}) {
-  const k = Math.round(cx) + "," + Math.round(cy) + "," + (opt.half || 600);
+  const k = JSON.stringify([cx, cy, opt.half || 600, opt.seed || 1, opt.name || null]);
   if (HCM_CACHE.has(k)) { const m = HCM_CACHE.get(k); HCM_CACHE.delete(k); HCM_CACHE.set(k, m); return m; }
   const m = hcmMap(city, cx, cy, opt); HCM_CACHE.set(k, m);
   while (HCM_CACHE.size > (typeof window === "undefined" ? 6 : 2)) HCM_CACHE.delete(HCM_CACHE.keys().next().value);
   return m;
 }
 let HCM = null;
-function setHcmCity(c) { HCM = c; }
+function setHcmCity(c) { HCM = c; HCM_CACHE.clear(); }
 function getHcmCity() {
   if (HCM) return HCM;
   if (typeof require === "function" && typeof module !== "undefined") {

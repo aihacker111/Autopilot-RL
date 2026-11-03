@@ -1,3 +1,5 @@
+> **LOTUS v5 (P0/P1):** recurrent world model, full-planner curriculum, resumable training and independent evaluation. See [v5 training guide](docs/v5-training.md). Entry: `python rl/v5_train.py --config configs/v5_full.yaml`.
+
 <div align="center">
 
 <picture>

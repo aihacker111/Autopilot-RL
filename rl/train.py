@@ -10,7 +10,7 @@ steps them in parallel and trains the policy with PyTorch.
 
 Requires: Python 3.9+, torch, numpy, Node.js 18+ on the PATH.
 """
-import argparse, base64, json, os, subprocess, sys, time
+import argparse, base64, json, os, subprocess, sys, time, shutil
 from collections import deque
 import numpy as np
 import torch
@@ -22,7 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # ---------------------------------------------------------------- environment
 class Worker:
     def __init__(self, n, seed, density=None, density_range=None, ramp=0, extra=None):
-        self.p = subprocess.Popen(["node", os.path.join(HERE, "worker.js")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+        self.p = subprocess.Popen([os.environ.get("LOTUS_NODE") or shutil.which("node") or "/opt/homebrew/bin/node", os.path.join(HERE, "worker.js")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
         self.n = n
         msg = {"cmd": "init", "n": n, "seed": seed}
         if density is not None: msg["density"] = density
@@ -32,11 +32,16 @@ class Worker:
         self.info = self.call(msg)
 
     def send(self, m): self.p.stdin.write(json.dumps(m) + "\n"); self.p.stdin.flush()
-    def recv(self): return json.loads(self.p.stdout.readline())
+    def recv(self):
+        line = self.p.stdout.readline()
+        if not line: raise RuntimeError(f"Node worker exited (code {self.p.poll()})")
+        return json.loads(line)
     def call(self, m): self.send(m); return self.recv()
     def close(self):
         try: self.send({"cmd": "close"})
-        except Exception: pass
+        except (BrokenPipeError, OSError): pass
+        try: self.p.wait(timeout=5)
+        except subprocess.TimeoutExpired: self.p.terminate(); self.p.wait(timeout=5)
 
 
 class VecEnv:
@@ -69,6 +74,15 @@ class VecEnv:
         """evolved scenario genomes (optionally weighted), mixed into the next map of every environment"""
         for wk in self.ws: wk.send({"cmd": "pool", "pool": pool, "p": p, **({"w": list(map(float, w))} if w is not None else {})})
         for wk in self.ws: wk.recv()
+
+    def snapshot(self):
+        for w in self.ws: w.send({"cmd": "snapshot"})
+        return [w.recv()["snapshot"] for w in self.ws]
+
+    def restore(self, snapshots):
+        if len(snapshots) != len(self.ws): raise ValueError("Worker count changed on resume")
+        for w, s in zip(self.ws, snapshots): w.send({"cmd": "restore", "snapshot": s})
+        for w in self.ws: w.recv()
 
     def close(self):
         for w in self.ws: w.close()

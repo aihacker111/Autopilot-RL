@@ -78,7 +78,9 @@ def phase2(c, W, dev, force, redo):
     out = os.path.join(RUNS, "eval", "phase2_final.json")
     if os.path.exists(out) and not redo:
         for k in ("2.baseline", "2.distill", "2.finetune"): stage(k, "done")
-        print("phase 2 already done:", json.load(open(out))); return json.load(open(out))
+        cached = json.load(open(out))
+        gate("phase 2 cached", cached["ok"] >= c["gate"]["min_ok"] and cached["crash"] <= c["gate"]["max_crash"], "cached result must pass current thresholds", force)
+        print("phase 2 already done:", cached); return cached
     os.makedirs(os.path.join(RUNS, "eval"), exist_ok=True)
     stage("2.baseline")
     base = node_eval("idm", c["eval_n"], W, os.path.join(RUNS, "eval", "idm.json"))
@@ -145,6 +147,9 @@ def phase_wm(c, W, dev, redo):
 
 def run(stages, redo, cfg, W, dev, a, t0):
     summary = {}
+    if "v5" in stages:
+        sh([PY, os.path.join(RL, "v5_train.py"), "--config", a.config])
+        summary["v5"] = json.load(open(os.path.join(ROOT, cfg["v5"]["out"], "result.json")))
     if "npc" in stages: summary["npc"] = phase_npc(cfg["npc"], W, dev, "npc" in redo)
     npc = os.path.join(RUNS, "npc", "npc.json")
     if cfg.get("traffic", "rules") == "learned":   # every later stage (and the CARLA bridge) drives among the learned road users
@@ -166,7 +171,7 @@ def run(stages, redo, cfg, W, dev, a, t0):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--config", default=os.path.join(ROOT, "configs", "default.yaml"))
-    p.add_argument("--stages", default="2,3,4"); p.add_argument("--redo", default=""); p.add_argument("--force", action="store_true")
+    p.add_argument("--stages", default="2,3,4", help="npc,2,3,wm,v5,4"); p.add_argument("--redo", default=""); p.add_argument("--force", action="store_true")
     p.add_argument("--teacher", default=None, help="policy JSON to use as the phase 4 teacher (default: phase 3 result)")
     p.add_argument("--smoke", action="store_true", help="tiny settings and no CARLA, to check that everything runs")
     p.add_argument("--port", type=int, default=8765, help="training monitor port (0 = no monitor)")
@@ -175,6 +180,10 @@ if __name__ == "__main__":
     p.add_argument("--generated-maps", action="store_true", help="allow training without the Ho Chi Minh City data (web/hcm): generated maps only")
     a = p.parse_args()
     cfg = yaml.safe_load(open(a.config))
+    if a.stages == "v5":
+        cmd = [PY, os.path.join(RL, "v5_train.py"), "--config", a.config]
+        if a.smoke: cmd = [PY, os.path.join(RL, "v5_train.py"), "--config", os.path.join(ROOT, "configs", "v5_smoke.yaml")]
+        sys.exit(subprocess.call(cmd, cwd=ROOT))
     # the city data is not in git (web/hcm is ~110 MB): without it every stage silently falls back to generated maps
     hcm = os.path.join(ROOT, "web", "hcm")
     try:
@@ -214,7 +223,7 @@ if __name__ == "__main__":
         msg = str(e) if not isinstance(e, subprocess.CalledProcessError) else f"{os.path.basename(str(e.cmd[1]))} exited with code {e.returncode}"
         if isinstance(e, KeyboardInterrupt): msg = "stopped with Ctrl+C"
         cur = STATUS.get("current")
-        if cur: stage(cur, "failed", state="failed", error=msg, ended=time.time())
+        if cur: stage(cur, "failed", error=msg, ended=time.time()); save(state="failed")
         else: save(state="failed", error=msg, ended=time.time())
         print("\n" + msg, flush=True)
         if srv and not a.exit_when_done and not isinstance(e, KeyboardInterrupt):
