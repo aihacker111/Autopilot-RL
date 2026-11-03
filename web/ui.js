@@ -294,7 +294,7 @@
     if (src === "drive") {   // the stretches of the journey, in order
       epOrder = eps.map((e) => e.id);
       const el = $("epPick"), cur = el.value;
-      el.innerHTML = `<option value="auto">Whole journey, stretch by stretch</option>` + eps.map((e) => `<option value="${e.id}">${e.id + 1}. ${e.traffic.replace(/ \(cell.*$/, "")} · ${e.place === "rail" ? "level crossing" : e.place} · ${e.km.toFixed(1)} km · ${R[e.result] || e.result}${e.red && e.result !== "red" ? " · red light" : ""}</option>`).join("");
+      el.innerHTML = `<option value="auto">Whole journey, stretch by stretch</option>` + eps.map((e) => `<option value="${e.id}">${e.id + 1}. ${e.traffic.replace(/ \(cell.*$/, "")} · ${e.place === "rail" ? "level crossing" : e.place} · ${e.result ? `${(e.km || 0).toFixed(1)} km · ${R[e.result] || e.result}${e.red && e.result !== "red" ? " · red light" : ""}` : "driving now"}</option>`).join("");
       el.value = cur || "auto"; if (el.selectedIndex < 0) el.value = "auto"; return;
     }
     const ms = eps.filter((e) => e.milestone).sort((a, b) => a.scenario - b.scenario || a.steps - b.steps), live = eps.filter((e) => !e.milestone).reverse();
@@ -307,6 +307,17 @@
     const el = $("epPick"), cur = el.value; el.innerHTML = html; el.value = cur || "auto"; if (el.selectedIndex < 0) el.value = "auto";
   }
   $("epPick").onchange = (e) => { pickId = e.target.value === "auto" ? null : +e.target.value; replay = null; tally = { ok: 0, crash: 0, red: 0, timeout: 0, hit: 0, n: 0, tOk: 0 }; updateTally(); nextReplay(); };
+
+  /* a live stretch: fetch what has been driven since, and carry on (the beginning is identical) */
+  async function extendLive(rp) {
+    try {
+      const ep = await (await fetch(`/api/drive?id=${rp.ep.id}`, { cache: "no-store" })).json();
+      if (replay !== rp) return;
+      if (ep.replay && ep.replay.actions.length > rp.i) { rp.ep = ep; rp.waiting = false; return; }
+      if (ep.replay && !ep.live) { rp.waiting = false; rp.ep = ep; return; }   // final and nothing new: the next tick ends it
+    } catch (e) {}
+    setTimeout(() => { if (replay === rp) extendLive(rp); }, 2000);
+  }
 
   /* replay a TD-MPC2 training episode exactly: the same seeded environment (map window, traffic) and the actions it chose, with its planner */
   async function nextReplay() {
@@ -335,10 +346,10 @@
       layers = new CityLayers(map, R.seed * 3 + 1, ppm, 80, W < 680 ? 10 : 16); mini.dirty = true;
       const named = (map.nodes.filter((j) => j.name).sort((a, b) => Math.hypot(a.x - R.centre[0], a.y - R.centre[1]) - Math.hypot(b.x - R.centre[0], b.y - R.centre[1]))[0] || {}).name;
       $("cityTag").lastChild.nodeValue = src === "drive" ? `${named || "HCMC"} · test drive ${ep.id + 1}/${eps.length}` : ep.milestone ? `${named || "HCMC"} · ${Math.round(ep.steps / 1000)}k · scenario ${ep.scenario + 1}` : `${named || "HCMC"} · training episode ${ep.id + 1}`;
-      const res = { ok: "reached the end of its route", crash: "crashed", hit: "was hit by another road user", red: "ran a red light", timeout: "ran out of time" }[ep.result] || ep.result;
+      const res = ep.live && !ep.result ? "is driving it right now (live: the replay follows the drive as it happens)" : { ok: "reached the end of its route", crash: "crashed", hit: "was hit by another road user", red: "ran a red light", timeout: "ran out of time" }[ep.result] || ep.result;
       if (src === "drive") {
         const S = journey.summary || {};
-        $("avDesc").textContent = `Test drive of the ${/best/.test(S.ckpt || "") ? "best " : ""}checkpoint (${Math.round(ep.steps / 1000)}k training steps), full planner. Stretch ${ep.id + 1} of ${eps.length}: ${ep.traffic} at ${ep.place === "rail" ? "a level crossing" : ep.place} (${ep.kind}), a ${ep.km_route.toFixed(1)} km route. It ${res}${ep.time ? " after " + (+ep.time).toFixed(1) + " s" : ""}.` + (R.imagined ? " Orange: the paths it imagined; violet: where it expected nearby road users; the badge: its predicted risk of contact." : "");
+        $("avDesc").textContent = `Test drive of the ${/best/.test(S.ckpt || "") ? "best " : ""}checkpoint (${Math.round(ep.steps / 1000)}k training steps), full planner. Stretch ${ep.id + 1} of ${eps.length}: ${ep.traffic} at ${ep.place === "rail" ? "a level crossing" : ep.place} (${ep.kind})${ep.km_route ? `, a ${ep.km_route.toFixed(1)} km route` : ""}. It ${res}${ep.time && !ep.live ? " after " + (+ep.time).toFixed(1) + " s" : ""}.` + (R.imagined ? " Orange: the paths it imagined; violet: where it expected nearby road users; the badge: its predicted risk of contact." : "");
         $("driveSum").textContent = S.km != null ? `Whole journey: ${S.km} km in ${S.stretches} stretches · ${S.completed} completed · ${S.crashes} crashes (${S.crashes_per_100km} per 100 km) · ${S.red_lights} red lights · ${S.hit_by_others} hit by others · mean ${S.mean_kmh} km/h` : "";
         $("driveBar").hidden = false;
       } else $("avDesc").textContent = (ep.milestone ? `${ep.ckpt === "best.pt" ? "Best checkpoint (most routes completed minus crashes on the fixed evaluation)" : "Checkpoint"} at ${Math.round(ep.steps / 1000)}k training steps, scenario ${ep.scenario + 1}: every checkpoint drives these same scenarios, so you can compare them. Replayed exactly:` : `Training episode ${ep.id + 1}, recorded at ${Math.round(ep.steps / 1000)}k training steps and replayed exactly:`) + ` TD-MPC2 driving with its full planner (MPPI over imagined futures). It ${res}${ep.time ? " after " + (+ep.time).toFixed(1) + " s" : ""}.${R.imagined ? " Orange: the paths it imagined in its possible futures; violet: where it expected nearby road users to be (dashed pink: in its other possible futures); the badge is its predicted risk of contact within 2 s." : ""}${R.opts && R.opts.genome ? " This episode used an evolved scenario." : ""}` + (R.npc && !NPCB ? " (Learned traffic is not loaded here, so the replay may differ.)" : "");
@@ -431,7 +442,7 @@
   /* ---------- one tick = one decision of the car (2 simulation steps) */
   const stepLen = DT * ENV.REPEAT;
   function tick() {
-    if (drivers[drv].replay && (!replay || replayBusy)) return;   // the next recorded episode is loading
+    if (drivers[drv].replay && (!replay || replayBusy || replay.waiting)) return;   // the next recorded episode is loading, or a live stretch has not driven further yet
     if (replay && env.ego) { const im = replay.ep.replay.imagined; replay.imag = im ? im[replay.i] : null; replay.anchor = [env.ego.x, env.ego.y, env.ego.h]; }
     const snap = new Map(); for (const v of sim.vehicles) snap.set(v, [v.x, v.y, v.h]); for (const a of sim.agents) if (!a.static) snap.set(a, [a.x, a.y, a.h]);
     lastAct = drivers[drv].act(env);
@@ -439,7 +450,8 @@
     if (replay) {
       const c = replay.ep.replay.check.find((q) => q[0] === replay.i);
       if (c && env.ego && !replay.drift && Math.hypot(env.ego.x - c[1], env.ego.y - c[2]) > 1) { replay.drift = true; console.warn("replay drifted from the recording at decision", replay.i); }
-      if (r.done || replay.i >= replay.ep.replay.actions.length) {
+      if (!r.done && replay.i >= replay.ep.replay.actions.length && replay.ep.live) { replay.waiting = true; extendLive(replay); }
+      else if (r.done || replay.i >= replay.ep.replay.actions.length) {
         if (r.done) onEpisodeEnd(r.info);
         if (pickId != null) { const j = epOrder.indexOf(pickId); pickId = j >= 0 && j + 1 < epOrder.length ? epOrder[j + 1] : null; }
         replay = null; setTimeout(nextReplay, 1200);
@@ -471,7 +483,13 @@
   function nearestJunction(x, y) { let best = map.nodes[0], bd = 1e9; for (const j of map.nodes) { if (j.type === "bend") continue; const d = (j.x - x) ** 2 + (j.y - y) ** 2; if (d < bd) { bd = d; best = j; } } return best; }
   function updateDriveBar() {
     if (!replay || replay.src !== "drive" || !journey) return;
-    const segs = journey.segments, i = replay.ep.id, before = segs.filter((q) => q.id < i), total = segs.reduce((a, q) => a + q.km_route, 0);   // along the journey's route
+    const segs = journey.segments, i = replay.ep.id, before = segs.filter((q) => q.id < i);
+    if (!journey.summary) {   // the drive is still going
+      const fin = segs.filter((q) => q.result).length, cr = segs.filter((q) => q.result === "crash").length, rd = segs.filter((q) => q.red).length;
+      $("driveTxt").innerHTML = `<b>Test drive, live</b> · watching stretch ${i + 1}/${segs.length} · ${fin} finished so far: ${cr} crash${cr === 1 ? "" : "es"}, ${rd} red light${rd === 1 ? "" : "s"}${replay.waiting ? " · waiting for the car to drive on…" : ""}`;
+      $("driveFill").style.width = (segs.length ? fin / segs.length * 100 : 0).toFixed(1) + "%"; return;
+    }
+    const total = segs.reduce((a, q) => a + q.km_route, 0);   // along the journey's route
     const now = env.ego ? Math.min(replay.ep.km_route, env.progress() / 1000) : replay.ep.km_route, done = before.reduce((a, q) => a + q.km_route, 0) + now;
     const cr = before.filter((q) => q.result === "crash").length, rd = before.filter((q) => q.red).length;
     $("driveTxt").innerHTML = `<b>Test drive</b> · ${done.toFixed(1)} / ${total.toFixed(1)} km · stretch ${i + 1}/${segs.length} · so far ${cr} crash${cr === 1 ? "" : "es"}, ${rd} red light${rd === 1 ? "" : "s"}`;

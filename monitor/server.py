@@ -202,10 +202,15 @@ def make_handler(runs, host, sim):
                 elif u.path == "/api/drive":   # the test drive of rl/drive_test.py: the journey, or one stretch (?id=)
                     d = os.path.join(runs, "drive")
                     if "id" in q:
-                        f = os.path.join(d, f"seg_{int(q['id'][0]):03d}.json")
+                        i = int(q["id"][0]); f = os.path.join(d, f"seg_{i:03d}.json"); h = load(os.path.join(d, "live", f"seg_{i:03d}.json"))
                         if os.path.isfile(f): self.send(open(f, "rb").read())
+                        elif h:   # still driving: what has been streamed so far
+                            acts, imag = [], []
+                            for k in range(h["chunks"]):
+                                c = load(os.path.join(d, "live", f"seg_{i:03d}_c{k}.json")) or {}; acts += c.get("actions", []); imag += c.get("imagined", [])
+                            self.send(json.dumps(dict(h["meta"], live=True, replay=dict(h["replay"], actions=acts, imagined=imag))))
                         else: self.send(json.dumps({"error": "stretch not found"}), code=404)
-                    else: self.send(json.dumps(load(os.path.join(d, "journey.json")) or {"segments": []}))
+                    else: self.send(json.dumps(load(os.path.join(d, "journey.json")) or load(os.path.join(d, "live", "live.json")) or {"segments": []}))
                 elif u.path == "/api/episodes":   # recorded TD-MPC2 training episodes, replayed by the /sim page
                     d = os.path.join(runs, "tdmpc2", "episodes")
                     if "id" in q:

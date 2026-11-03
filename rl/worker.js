@@ -43,7 +43,7 @@ rl.on("line", (line) => {
       });
     }
     if (m.showcase && !m.specs && envs.length) { show = { base: (m.seed * 1000 + 777) * 1000, k: 0, opts: Object.assign({ densityRange: m.densityRange, reseedEvery: 0 }, common), acts: [], chk: [] }; envs[0] = showEnv(0); }
-    send({ obs_dim: ENV.OBS_DIM, act_dim: ENV.ACT_DIM });
+    send({ obs_dim: ENV.OBS_DIM, act_dim: ENV.ACT_DIM, ...(m.journey ? { journey: envs.map((e) => ({ seed: e.rec.opts.seed, opts: e.rec.opts, centre: e.rec.centre, npc: !!process.env.LOTUS_NPC })) } : {}) });
   } else if (m.cmd === "pool") {   // evolved scenario genomes: mixed into every environment's next map (and the next showcase episode)
     pool = m.pool; pPool = m.p;
     for (const e of envs) { e.pool = pool; e.pPool = pPool; }
