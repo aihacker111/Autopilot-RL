@@ -28,8 +28,9 @@ class ConsoleLog:
 
 
 class TrainingMonitor:
-    def __init__(self, out, port=8765, bind='0.0.0.0', generated=False):
+    def __init__(self, out, port=8765, bind='0.0.0.0', generated=False, label="LOTUS v5"):
         self.out, self.port, self.bind, self.generated = Path(out).resolve(), port, bind, generated
+        self.label = label
         self.server = self.url = None
         self.saved = self.file = None
 
@@ -44,7 +45,7 @@ class TrainingMonitor:
             if self.server:
                 suffix = '/sim?driver=latest' + ('' if self.generated else '&map=hcm')
                 local = f'http://127.0.0.1:{self.server.server_address[1]}'
-                print(f'\nLOTUS v5 training monitor\n  Dashboard: {local}/\n  Simulator (latest policy prior): {local}{suffix}', flush=True)
+                print(f'\n{self.label} training monitor\n  Dashboard: {local}/\n  Simulator (latest policy prior): {local}{suffix}', flush=True)
                 if self.url != local:
                     print(f'  Network dashboard: {self.url}/\n  Network simulator: {self.url}{suffix}', flush=True)
                 print('  On a remote server: forward the monitor port with SSH, then open the localhost link.\n', flush=True)

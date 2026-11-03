@@ -133,7 +133,7 @@ WM_RUN = os.environ.get("LOTUS_WM_RUN")   # which world-model run folder to show
 
 def wm_dir(runs):
     if WM_RUN: return WM_RUN if os.path.isabs(WM_RUN) else os.path.join(runs, WM_RUN)
-    ds = [d for pattern in ("tdmpc2*", "lotus_v5*") for d in glob.glob(os.path.join(runs, pattern)) if os.path.isdir(d)]
+    ds = [d for pattern in ("tdmpc2*", "lotus_v5*", "lotus_v6*") for d in glob.glob(os.path.join(runs, pattern)) if os.path.isdir(d)]
     if not ds: return os.path.join(runs, "tdmpc2")
     act = lambda d: max([os.path.getmtime(f) for f in (os.path.join(d, "status.json"), os.path.join(d, "policy.json")) if os.path.exists(f)] or [0])
     return max(ds, key=act)

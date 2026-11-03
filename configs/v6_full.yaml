@@ -1,0 +1,38 @@
+# New experiment; run: python train_v6.py --config configs/v6_full.yaml
+# Inherits common simulator/model settings from v5_full.yaml.
+v6:
+  out: rl/runs/lotus_v6_full
+  steps: 5000000
+  eval_every: 20000
+  eval_episodes: 24
+  checkpoint_every: 10000
+  export_every: 2000
+  log_every: 2000
+  # Corrected multi-step model + shield-aware requested-action Q.
+  posterior_coef: 0.25
+  projection_coef: 1.0
+  intervention_cost: 0.5
+  # Protected demonstrations are not overwritten by online/CF experience.
+  demo_capacity: 100000
+  demo_fraction: 0.50
+  counterfactual_fraction: 0.10
+  teacher_steps: 10000
+  teacher_coef: 1.0
+  shield_coef: 0.25
+  # Fixed validation gates, not an unconditional switch at step 10000.
+  teacher_baseline_episodes: 12
+  teacher_baseline_min_ok: 0.50
+  teacher_baseline_max_contact_per_km: 1.0
+  require_teacher_baseline: true
+  handover_episodes: 12
+  handover_min_episodes: 12
+  handover_min_ok: 0.60
+  handover_max_contact_per_km: 0.25
+  handover_max_red: 0.02
+  handover_max_projection_mae: 0.10
+  handover_required_passes: 2
+  handover_decrement: 0.25
+  teacher_probability_floor: 0.10
+  bootstrap_limit: 100000
+  # Keep scenario distribution stable while validating the corrected core.
+  evo_every: 0
