@@ -29,7 +29,7 @@ world_model:             # TD-MPC2 v2 (rl/tdmpc2.py): a learned world model with
   pool_p: 0.4            # share of new maps that use an evolved scenario
   eval_n: 48
   eval_every: 100000
-  export_every: 2000     # a snapshot for the live simulator page: monitor /sim swaps it into the car as it drives
+  export_every: 5000     # a snapshot for the live simulator page: monitor /sim swaps it into the car as it drives
 
 phase2:                  # teacher with full state: look-ahead planner -> DAgger student -> PPO fine-tuning
   eval_n: 240            # fixed evaluation scenarios

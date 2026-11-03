@@ -29,6 +29,9 @@ people, a time gap to the vehicle ahead, stopping within sight); the demonstrati
   python tdmpc2.py --steps 1000000 --workers 16 --demos 40000          # full run (GPU recommended)
   python tdmpc2.py --steps 3000 --workers 2 --envs 2 --demos 400 --samples 64 --eval-n 4   # smoke test
   python tdmpc2.py --eval runs/tdmpc2/final.pt --eval-n 24              # evaluate with planning
+  python tdmpc2.py --record all --record-n 4                            # every checkpoint drives the same 4 scenarios (for /sim)
+  python tdmpc2.py --best                                               # pick the best evaluated checkpoint (best.pt, policy.json)
+  python tdmpc2.py --record best                                        # ... and record it on the same scenarios
 
 Outputs in --out: checkpoints (.pt), policy.json (the policy prior alone, runs in the browser without planning),
 log.json, eval_*.json, episodes/ (training episodes with what the car imagined, replayed on the monitor's /sim page),
@@ -417,19 +420,81 @@ def export_policy(agent, path, name, steps):
     os.replace(path + ".tmp", path)   # atomic: the monitor never reads a half-written file
 
 
-def save_episode(out, i, steps, info, rp, keep):
+def save_episode(out, i, steps, info, rp, keep, extra=None):
     """one training episode (seed + the actions TD-MPC2 chose + what it imagined), for an exact replay on /sim"""
     d = os.path.join(out, "episodes"); os.makedirs(d, exist_ok=True)
-    meta = {"id": i, "steps": steps, "result": info.get("result"), "time": info.get("time"), "legs": info.get("legs"), "red": bool(info.get("red")), "evolved": bool(rp.get("opts", {}).get("genome"))}
+    meta = {"id": i, "steps": steps, "result": info.get("result"), "time": info.get("time"), "legs": info.get("legs"), "red": bool(info.get("red")), "evolved": bool(rp.get("opts", {}).get("genome")), **(extra or {})}
     f = os.path.join(d, f"ep_{i:06d}.json"); json.dump(dict(meta, replay=rp), open(f + ".tmp", "w")); os.replace(f + ".tmp", f)
     idx = os.path.join(d, "index.json")
     try: L = json.load(open(idx))
     except (OSError, ValueError): L = []
     L.append(meta)
-    for old in L[:-keep]:
-        try: os.remove(os.path.join(d, f"ep_{old['id']:06d}.json"))
+    recent = [m for m in L if not m.get("milestone")]; drop = {m["id"] for m in recent[:-keep]}   # checkpoint episodes are never dropped
+    for m in recent[:-keep]:
+        try: os.remove(os.path.join(d, f"ep_{m['id']:06d}.json"))
         except OSError: pass
-    json.dump(L[-keep:], open(idx + ".tmp", "w")); os.replace(idx + ".tmp", idx)
+    json.dump([m for m in L if m["id"] not in drop], open(idx + ".tmp", "w")); os.replace(idx + ".tmp", idx)
+
+
+def select_best(a, dev=None):
+    """the best checkpoint on the fixed evaluation suite (completed minus crashed, ties to the later one): copied to
+    best.pt, its policy prior written to policy.json (what the browser drives), the table to best.json"""
+    import glob, re, shutil
+    rows = []
+    for f in glob.glob(os.path.join(a.out, "eval_*.json")):
+        m = re.findall(r"eval_(\d+)\.json$", f)
+        if m and os.path.exists(os.path.join(a.out, f"ckpt_{m[0]}.pt")): rows.append((int(m[0]), json.load(open(f)), f"ckpt_{m[0]}.pt"))
+    fin = os.path.join(a.out, "eval_final.json")
+    if os.path.exists(fin) and os.path.exists(os.path.join(a.out, "final.pt")): ev = json.load(open(fin))["summary"]; rows.append((int(ev.get("steps", 0)) + 1, ev, "final.pt"))
+    if not rows: print(json.dumps({"best": "no evaluated checkpoints in " + a.out})); return None
+    score = lambda ev: ev["ok"] - ev["crash"]
+    steps, ev, ck = max(rows, key=lambda r: (round(score(r[1]), 4), r[0]))
+    shutil.copy(os.path.join(a.out, ck), os.path.join(a.out, "best.pt"))
+    dev = dev or torch.device(a.device); saved = torch.load(os.path.join(a.out, ck), map_location=dev).get("args", {})
+    b = argparse.Namespace(**{**vars(a), **{k: v for k, v in saved.items() if k not in ("device", "out", "workers", "record", "record_n", "record_seed", "eval", "steps", "best")}})
+    ag = TDMPC2(b, dev); st = ag.load(os.path.join(a.out, ck))
+    if os.path.exists(os.path.join(a.out, "policy.json")) and ck != "final.pt": shutil.copy(os.path.join(a.out, "policy.json"), os.path.join(a.out, "policy_last.json"))
+    export_policy(ag, os.path.join(a.out, "policy.json"), f"TD-MPC2 best prior {st // 1000}k", st)
+    table = [{"ckpt": c, "steps": int(e.get("steps", s0)), "ok": e["ok"], "crash": e["crash"], "score": round(score(e), 4)} for s0, e, c in sorted(rows)]
+    best = {"ckpt": ck, "steps": st, "ok": ev["ok"], "crash": ev["crash"], "score": round(score(ev), 4), "rule": "completed minus crashed on the fixed suite", "table": table}
+    json.dump(best, open(os.path.join(a.out, "best.json"), "w"), indent=1); print(json.dumps({"best": {k: best[k] for k in ("ckpt", "steps", "ok", "crash", "score")}}), flush=True)
+    return best
+
+
+def record_checkpoints(a):
+    """episodes driven by saved checkpoints, every checkpoint on the same scenarios (same seeds), for the replay page:
+    watch how the car drives the same streets at 100k, 200k, ... steps"""
+    import glob, re
+    dev = torch.device(a.device)
+    files = sorted(glob.glob(os.path.join(a.out, "ckpt_*.pt")), key=lambda f: int(re.findall(r"ckpt_(\d+)", f)[0]))
+    if os.path.exists(os.path.join(a.out, "final.pt")): files.append(os.path.join(a.out, "final.pt"))
+    want = set(a.record.split(","))
+    if "best" in want and not os.path.exists(os.path.join(a.out, "best.pt")): select_best(a, dev)
+    if a.record != "all":
+        files = [f for f in files if os.path.basename(f) == "final.pt" and "final" in want or re.findall(r"ckpt_(\d+)", f) and re.findall(r"ckpt_(\d+)", f)[0] in want]
+    if "best" in want and os.path.exists(os.path.join(a.out, "best.pt")): files.append(os.path.join(a.out, "best.pt"))
+    if not files: print(json.dumps({"record": "no checkpoints found in " + a.out})); return
+    try: L = json.load(open(os.path.join(a.out, "episodes", "index.json")))
+    except (OSError, ValueError): L = []
+    L = [m for m in L if not (m.get("milestone") and m.get("ckpt") in {os.path.basename(f) for f in files})]   # recording again replaces them
+    os.makedirs(os.path.join(a.out, "episodes"), exist_ok=True); json.dump(L, open(os.path.join(a.out, "episodes", "index.json"), "w"))
+    nid = max([m["id"] for m in L] + [-1]) + 1
+    for f in files:
+        ck = torch.load(f, map_location=dev); saved = ck.get("args", {})
+        b = argparse.Namespace(**{**vars(a), **{k: v for k, v in saved.items() if k not in ("device", "out", "workers", "record", "record_n", "record_seed", "eval", "steps")}})
+        ag = TDMPC2(b, dev); steps = ag.load(f)
+        env = VecEnv(1, 1, seed=a.record_seed, density_range=[0.4, 1.1], extra={"genomeSpace": GSPACE, "reward": b.reward, "reseedEvery": b.reseed}, extra0={"showcase": 1})
+        obs = env.reset(); g = env.gen; got, imag, res = 0, [], []
+        while got < a.record_n:
+            act = ag.plan(obs, g, explore=False, record=True); imag.append(ag.imagined)
+            obs, rew, done, infos = env.step(act); g = env.gen
+            if infos[0]:
+                rp = infos[0].pop("replay", None)
+                if rp and rp.get("centre"):
+                    rp["imagined"] = imag[-len(rp["actions"]):]
+                    save_episode(a.out, nid, steps, infos[0], rp, 10 ** 9, {"milestone": True, "scenario": got, "ckpt": os.path.basename(f)}); nid += 1; got += 1; res.append(infos[0]["result"])
+                imag = []; ag.prev_mean = None
+        env.close(); print(json.dumps({"record": os.path.basename(f), "steps": steps, "results": res}), flush=True)
 
 
 # ---------------------------------------------------------------- evolution inside the world model
@@ -550,7 +615,8 @@ def train(a):
     agent.save(os.path.join(a.out, "final.pt"), steps); export_policy(agent, os.path.join(a.out, "policy.json"), "TD-MPC2 prior", steps)
     ev, eps = evaluate(agent, a.eval_n, a.workers, dev); ev["steps"] = steps
     json.dump({"summary": ev, "episodes": eps}, open(os.path.join(a.out, "eval_final.json"), "w")); print(json.dumps({"final": ev}), flush=True)
-    note(a.out, phase="done", **ev)
+    best = select_best(a, dev)
+    note(a.out, phase="done", **ev, **({"best_steps": best["steps"], "best_ok": best["ok"], "best_crash": best["crash"]} if best else {}))
     return ev
 
 
@@ -591,6 +657,9 @@ def parse():
     p.add_argument("--log-every", type=int, default=5000); p.add_argument("--eval-every", type=int, default=100_000); p.add_argument("--eval-n", type=int, default=48)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--out", default=os.path.join(HERE, "runs", "tdmpc2")); p.add_argument("--eval", default=None, help="evaluate a checkpoint with planning")
+    p.add_argument("--record", default=None, help="all, or checkpoints by step (100000,500000,final): drive the same scenarios with each and save them for the replay page")
+    p.add_argument("--record-n", type=int, default=4, help="scenarios per checkpoint"); p.add_argument("--record-seed", type=int, default=4242)
+    p.add_argument("--best", action="store_true", help="pick the best evaluated checkpoint of a finished run: best.pt, best.json, and its prior in policy.json")
     a = p.parse_args()
     a.elites = min(a.elites, a.samples // 2); a.pi_trajs = min(a.pi_trajs, a.samples // 4)
     return a
@@ -598,7 +667,9 @@ def parse():
 
 if __name__ == "__main__":
     a = parse()
-    if a.eval:
+    if a.best and not a.record: select_best(a)
+    elif a.record: record_checkpoints(a)
+    elif a.eval:
         dev = torch.device(a.device); ag = TDMPC2(a, dev); ag.load(a.eval)
         ev, eps = evaluate(ag, a.eval_n, a.workers, dev); print(json.dumps(ev))
         json.dump({"summary": ev, "episodes": eps}, open(a.eval + ".eval.json", "w"))
