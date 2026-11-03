@@ -139,6 +139,7 @@ def main():
     p.add_argument("--workers", type=int, default=max(1, min(16, (os.cpu_count() or 2) - 1)), help="CPU cores for the simulation (the stretches are split over them)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--out", default=os.path.join(T.HERE, "runs", "drive")); p.add_argument("--port", type=int, default=8765, help="serve the monitor afterwards (0 = do not)")
+    p.add_argument("--bind", default="0.0.0.0", help="address of the page: 127.0.0.1 = only through an SSH tunnel (safer on a public server)")
     a = p.parse_args()
     dev = torch.device(a.device)
     ckpt = a.ckpt
@@ -161,7 +162,7 @@ def main():
     srv, url = None, None
     if a.port:   # the page first, so the drive can be watched while it happens
         sys.path.insert(0, os.path.join(T.ROOT, "monitor")); import server as monitor
-        srv, url = monitor.start(os.path.dirname(os.path.abspath(a.out)), a.port, quiet=True)
+        srv, url = monitor.start(os.path.dirname(os.path.abspath(a.out)), a.port, a.bind, quiet=True)
         if srv:
             print(f"\nWatch the test drive live: {url}/drive", flush=True)
             print(f"  (from another computer: ssh -L {url.rsplit(':', 1)[1]}:localhost:{url.rsplit(':', 1)[1]} {os.environ.get('USER', 'user')}@<this server>, then http://localhost:{url.rsplit(':', 1)[1]}/drive)\n", flush=True)

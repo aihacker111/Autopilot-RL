@@ -16,6 +16,13 @@ Python standard library only. Read-only: it never writes into the run folder.
 """
 import argparse, glob, json, os, re, shutil, socket, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+class QuietServer(ThreadingHTTPServer):
+    """a browser closing a connection early (reload, closed tab, a spare connection it never used) is not an error"""
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, TimeoutError)): return
+        super().handle_error(request, client_address)
 from urllib.parse import urlparse, parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -247,7 +254,7 @@ def start(runs, port=8765, bind="0.0.0.0", quiet=False):
     host, sim = Host(runs), Sim(runs)
     srv = None
     for p in range(port, port + 20):
-        try: srv = ThreadingHTTPServer((bind, p), make_handler(runs, host, sim)); break
+        try: srv = QuietServer((bind, p), make_handler(runs, host, sim)); break
         except OSError: continue
     if srv is None:
         print(f"[monitor] no free port in {port}-{port + 19}; continuing without the dashboard", flush=True); return None, None
