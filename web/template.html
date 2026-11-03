@@ -217,6 +217,7 @@ select.mini-btn { padding: 0 6px; background: transparent; color: var(--ink); }
     <div class="seg" role="group" aria-label="Driver" id="drvSeg"></div>
     <p class="avdesc" id="avDesc"></p>
     <select class="btn mini-btn" id="epPick" hidden aria-label="Training episode to replay" style="width:100%;margin:0 0 8px;height:30px"></select>
+    <div id="driveBar" hidden style="margin:0 0 8px;font-size:12px;line-height:1.45"><div id="driveTxt"></div><div style="height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden;margin-top:4px"><b id="driveFill" style="display:block;height:100%;width:0;background:#19b9a8"></b></div><div id="driveSum" style="opacity:.75;margin-top:4px"></div></div>
     <div class="training" id="avTraining" hidden><i></i><span></span></div>
     <div class="avlive"><span>Episode <b id="avEp">1</b></span><span id="avRoute">–</span><span><b id="avSpeed">0 km/h</b></span><span>Reward <b id="avRet">0</b></span></div>
     <div class="tally">

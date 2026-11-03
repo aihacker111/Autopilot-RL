@@ -306,6 +306,12 @@ python pipeline.py --stages wm             # trains it and scores it on the fixe
 python rl/tdmpc2.py --eval rl/runs/tdmpc2/final.pt --eval-n 48   # evaluate a checkpoint with planning
 ```
 
+**Test drive of the best checkpoint** (`rl/drive_test.py`): the best evaluated checkpoint (`best.pt`, picked by `python rl/tdmpc2.py --best`, completed minus crashed on the fixed suite) drives a 10–20 km journey with its full planner. The journey is a chain of ~1 km stretches, each at a real place (signalised crossroads, roundabouts, Ngã sáu Cộng Hòa, a flyover, a level crossing, residential streets) with a traffic culture to test against (ordinary, rush hour, school gate, night speeders, motorbikes cutting in, wrong-way riders, sudden braking, early left turns, red-light runners) and the hardest scenarios the evolution found. The monitor's `/drive` page replays it exactly, stretch by stretch, with a kilometre bar and the totals (crashes per 100 km, red lights, mean speed, per scenario in `rl/runs/drive/journey.json`).
+
+```bash
+python rl/drive_test.py --km 15        # prints the link to /drive when done
+```
+
 A GPU is recommended for both: TD-MPC2 updates and plans with batched networks, and the multi-agent PPO trains on hundreds of thousands of decisions per iteration. With `traffic: learned` the simulation itself runs about 3 times slower (every motorbike and car evaluates a small network every 0.3 s), so phases 2 and 3 take longer too.
 
 ### Phase 3 · Co-evolution (artificial life)

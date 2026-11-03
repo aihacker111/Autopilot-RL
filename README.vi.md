@@ -304,6 +304,12 @@ python pipeline.py --stages wm             # huấn luyện và chấm trên b�
 python rl/tdmpc2.py --eval rl/runs/tdmpc2/final.pt --eval-n 48   # đánh giá một checkpoint có lập kế hoạch
 ```
 
+**Lái thử checkpoint tốt nhất** (`rl/drive_test.py`): checkpoint đánh giá tốt nhất (`best.pt`, chọn bằng `python rl/tdmpc2.py --best`, theo tỉ lệ đi tới nơi trừ tỉ lệ đâm trên bộ đề cố định) lái một chuyến 10–20 km với bộ lập kế hoạch đầy đủ. Chuyến gồm các chặng khoảng 1 km, mỗi chặng ở một địa điểm thật (ngã tư có đèn, vòng xoay, Ngã sáu Cộng Hòa, cầu vượt, chỗ cắt đường sắt, khu dân cư) với một kiểu giao thông để thử thách (bình thường, giờ cao điểm, cổng trường, đêm chạy ẩu, xe máy tạt đầu, đi ngược chiều, phanh gấp, rẽ trái sớm, vượt đèn đỏ) và các kịch bản khó nhất mà tiến hoá tìm ra. Trang `/drive` của monitor phát lại chính xác từng chặng, có thanh km và số liệu tổng (đâm trên 100 km, vượt đèn đỏ, tốc độ trung bình, theo từng kịch bản trong `rl/runs/drive/journey.json`).
+
+```bash
+python rl/drive_test.py --km 15        # chạy xong in ra link /drive
+```
+
 Nên có GPU cho cả hai: TD-MPC2 cập nhật và lập kế hoạch bằng mạng chạy theo lô, còn PPO nhiều tác tử học trên hàng trăm nghìn quyết định mỗi vòng. Với `traffic: learned`, bản thân mô phỏng chạy chậm hơn khoảng 3 lần (mỗi xe máy và ô tô chạy một mạng nhỏ mỗi 0,3 giây), nên giai đoạn 2 và 3 cũng lâu hơn.
 
 ### Giai đoạn 3 · Đồng tiến hoá (Artificial Life)

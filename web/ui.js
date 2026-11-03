@@ -23,7 +23,7 @@
   let drv = 0, curObs = null, lastAct = [0, 0], tally = null, crashMark = null, seeing = false;
   let replay = null, replayBusy = false;   // a recorded TD-MPC2 training episode being replayed (monitor page)
   let pickId = null, epOrder = [];          // an episode chosen in the list (null: the newest training episodes, in turn)
-  const seenEp = new Set();
+  const seenEp = new Set(), seenDrive = new Set(); let journey = null;   // journey: the test drive (rl/drive_test.py)
   try { if (new URLSearchParams(location.search).get("driver") === "latest" && drivers.length > 2) drv = drivers.length - 1; } catch (e) {}   // training monitor: start on the newest network
 
   /* Ho Chi Minh City: the index and an overview are fetched once; each window fetches the tiles it needs */
@@ -86,7 +86,7 @@
   function setDensity(d) { if (sim) sim.density = d; $("densName").textContent = densNames.find(([t]) => d <= t)[1]; }
   $("density").oninput = (e) => setDensity(+e.target.value);
   $("fit").onclick = () => { stopFollowing(); const B = map.bounds; animateCam((B.x0 + B.x1) / 2, (B.y0 + B.y1) / 2, Math.min(W / (B.x1 - B.x0), H / (B.y1 - B.y0)) * 1.02); };
-  function leaveReplay() { if (drivers[drv] && drivers[drv].replay) { replay = null; drv = 0; renderDrivers(); $("avDesc").textContent = drivers[0].desc; $("epPick").hidden = true; } }
+  function leaveReplay() { if (drivers[drv] && drivers[drv].replay) { replay = null; drv = 0; renderDrivers(); $("avDesc").textContent = drivers[0].desc; $("epPick").hidden = true; $("driveBar").hidden = true; } }
   $("newCity").onclick = () => { leaveReplay(); if (preset === "hcm") randomPlace(citySeed + 1); else newCity(citySeed + 1); };
   $("preset").value = preset;
   $("preset").onchange = (e) => { leaveReplay(); if (e.target.value === "hcm") { randomPlace(citySeed); return; } preset = e.target.value; newCity(citySeed); const B = map.bounds; if (!followEgo) animateCam((B.x0 + B.x1) / 2, (B.y0 + B.y1) / 2, cam.z); };
@@ -273,14 +273,15 @@
   $("avFollow").onclick = () => { followEgo = !followEgo; $("avFollow").setAttribute("aria-pressed", String(followEgo)); if (followEgo) { follow = false; $("iFollow").setAttribute("aria-pressed", "false"); if (env.ego) animateCam(env.ego.x, env.ego.y, Math.max(cam.z, fitZoom())); } };
   $("avSee").onclick = () => { seeing = !seeing; $("avSee").setAttribute("aria-pressed", String(seeing)); };
   function setDriver(i) {
-    const prevReplay = drivers[drv] && drivers[drv].replay;
+    const prevReplay = drivers[drv] && drivers[drv].replay, prevDrv = drv;
     drv = i; $("drvSeg").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.d === i)));
     $("avDesc").textContent = drivers[i].desc;
     tally = { ok: 0, crash: 0, red: 0, timeout: 0, hit: 0, n: 0, tOk: 0 };
     const ev = AV && AV.evals ? AV.evals[drivers[i].id] : null;
     $("avEval").innerHTML = ev ? `Scored on ${ev.episodes} fixed episodes: completed <b>${pct(ev.ok)}</b> · crash <b>${pct(ev.crash)}</b> · red light <b>${pct(ev.red)}</b>` : "";
-    $("epPick").hidden = !drivers[i].replay;
-    if (drivers[i].replay) nextReplay();
+    $("epPick").hidden = !drivers[i].replay; $("driveBar").hidden = drivers[i].src !== "drive";
+    if (prevReplay !== drivers[i].replay || (drivers[i].src || "") !== ((drivers[prevDrv] || {}).src || "")) pickId = null;
+    if (drivers[i].replay) { replay = null; nextReplay(); }
     else if (replay || prevReplay) { replay = null; newCity(citySeed); }   // back to a live simulation
     else if (env && env.ego) { env.removeEgo(); curObs = env.reset(); }
     if (sel && sel.ego) select(env.ego);
@@ -288,8 +289,14 @@
   }
   /* the list of recorded episodes: the newest training episodes (auto), then the checkpoint episodes, grouped by scenario
      so that the next one is the same scenario at the next checkpoint */
-  function fillEpPick(eps) {
+  function fillEpPick(eps, src) {
     const R = { ok: "done", crash: "crash", hit: "hit", red: "red light", timeout: "timeout" }, k = (e) => Math.round(e.steps / 1000) + "k";
+    if (src === "drive") {   // the stretches of the journey, in order
+      epOrder = eps.map((e) => e.id);
+      const el = $("epPick"), cur = el.value;
+      el.innerHTML = `<option value="auto">Whole journey, stretch by stretch</option>` + eps.map((e) => `<option value="${e.id}">${e.id + 1}. ${e.traffic.replace(/ \(cell.*$/, "")} · ${e.place === "rail" ? "level crossing" : e.place} · ${e.km.toFixed(1)} km · ${R[e.result] || e.result}${e.red && e.result !== "red" ? " · red light" : ""}</option>`).join("");
+      el.value = cur || "auto"; if (el.selectedIndex < 0) el.value = "auto"; return;
+    }
     const ms = eps.filter((e) => e.milestone).sort((a, b) => a.scenario - b.scenario || a.steps - b.steps), live = eps.filter((e) => !e.milestone).reverse();
     epOrder = [...ms, ...live].map((e) => e.id);
     const opt = (e, label) => `<option value="${e.id}">${label} · ${R[e.result] || e.result}</option>`, kk = k;
@@ -305,27 +312,36 @@
   async function nextReplay() {
     if (replayBusy) return; replayBusy = true; $("loading").hidden = false;
     try {
-      const eps = (await (await fetch("/api/episodes", { cache: "no-store" })).json()).episodes || [];
+      const src = drivers[drv].src || "episodes", data = await (await fetch("/api/" + src, { cache: "no-store" })).json();
+      const eps = (src === "drive" ? data.segments : data.episodes) || [];
       if (!city) { setTimeout(nextReplay, 1000); return; }   // the city data is still loading
       if (!eps.length) return;
-      fillEpPick(eps);
-      const live = eps.filter((e) => !e.milestone);
-      const pick = (pickId != null && eps.find((e) => e.id === pickId)) || live.slice().reverse().find((e) => !seenEp.has(e.id)) || live[live.length - 1] || eps[eps.length - 1]; seenEp.add(pick.id);
+      if (src === "drive") journey = data;
+      fillEpPick(eps, src);
+      let pick;
+      if (src === "drive") { pick = (pickId != null && eps.find((e) => e.id === pickId)) || eps.find((e) => !seenDrive.has(e.id)); if (!pick) { seenDrive.clear(); tally = { ok: 0, crash: 0, red: 0, timeout: 0, hit: 0, n: 0, tOk: 0 }; updateTally(); pick = eps[0]; } seenDrive.add(pick.id); }
+      else { const live = eps.filter((e) => !e.milestone); pick = (pickId != null && eps.find((e) => e.id === pickId)) || live.slice().reverse().find((e) => !seenEp.has(e.id)) || live[live.length - 1] || eps[eps.length - 1]; seenEp.add(pick.id); }
       $("epPick").value = pickId != null ? String(pick.id) : "auto";
-      const ep = await (await fetch("/api/episodes?id=" + pick.id, { cache: "no-store" })).json(), R = ep.replay;
-      await city.ensure(R.centre[0], R.centre[1], 700);
+      const ep = await (await fetch(`/api/${src}?id=${pick.id}`, { cache: "no-store" })).json(), R = ep.replay;
+      const half = (R.opts.mapOpts && R.opts.mapOpts.half) || 600;
+      await city.ensure(R.centre[0], R.centre[1], half + 100);
       const keep = getNpcBrain(); setNpcBrain(R.npc ? NPCB : null);
-      const e = new EgoEnv(Object.assign({}, R.opts, { seed: R.seed, mapOpts: { centre: R.centre } }));
+      const e = new EgoEnv(Object.assign({}, R.opts, { seed: R.seed, mapOpts: Object.assign({ centre: R.centre }, R.opts.mapOpts || {}) }));
       const o = e.reset(); setNpcBrain(keep);
       if (!drivers[drv].replay) return;   // switched to another driver meanwhile
-      replay = { ep, i: 0, drift: false };
+      replay = { ep, i: 0, drift: false, src };
       env = e; sim = e.sim; map = sim.map; centre = R.centre; preset = "hcm"; curObs = o;
       $("preset").value = "hcm"; $("searchBox").hidden = false; $("attrib").hidden = false; $("miniTabs").hidden = false;
       layers = new CityLayers(map, R.seed * 3 + 1, ppm, 80, W < 680 ? 10 : 16); mini.dirty = true;
       const named = (map.nodes.filter((j) => j.name).sort((a, b) => Math.hypot(a.x - R.centre[0], a.y - R.centre[1]) - Math.hypot(b.x - R.centre[0], b.y - R.centre[1]))[0] || {}).name;
-      $("cityTag").lastChild.nodeValue = ep.milestone ? `${named || "HCMC"} · ${Math.round(ep.steps / 1000)}k · scenario ${ep.scenario + 1}` : `${named || "HCMC"} · training episode ${ep.id + 1}`;
+      $("cityTag").lastChild.nodeValue = src === "drive" ? `${named || "HCMC"} · test drive ${ep.id + 1}/${eps.length}` : ep.milestone ? `${named || "HCMC"} · ${Math.round(ep.steps / 1000)}k · scenario ${ep.scenario + 1}` : `${named || "HCMC"} · training episode ${ep.id + 1}`;
       const res = { ok: "reached the end of its route", crash: "crashed", hit: "was hit by another road user", red: "ran a red light", timeout: "ran out of time" }[ep.result] || ep.result;
-      $("avDesc").textContent = (ep.milestone ? `${ep.ckpt === "best.pt" ? "Best checkpoint (most routes completed minus crashes on the fixed evaluation)" : "Checkpoint"} at ${Math.round(ep.steps / 1000)}k training steps, scenario ${ep.scenario + 1}: every checkpoint drives these same scenarios, so you can compare them. Replayed exactly:` : `Training episode ${ep.id + 1}, recorded at ${Math.round(ep.steps / 1000)}k training steps and replayed exactly:`) + ` TD-MPC2 driving with its full planner (MPPI over imagined futures). It ${res}${ep.time ? " after " + (+ep.time).toFixed(1) + " s" : ""}.${R.imagined ? " Orange: the paths it imagined in its possible futures; violet: where it expected nearby road users to be (dashed pink: in its other possible futures); the badge is its predicted risk of contact within 2 s." : ""}${R.opts && R.opts.genome ? " This episode used an evolved scenario." : ""}` + (R.npc && !NPCB ? " (Learned traffic is not loaded here, so the replay may differ.)" : "");
+      if (src === "drive") {
+        const S = journey.summary || {};
+        $("avDesc").textContent = `Test drive of the ${/best/.test(S.ckpt || "") ? "best " : ""}checkpoint (${Math.round(ep.steps / 1000)}k training steps), full planner. Stretch ${ep.id + 1} of ${eps.length}: ${ep.traffic} at ${ep.place === "rail" ? "a level crossing" : ep.place} (${ep.kind}), a ${ep.km_route.toFixed(1)} km route. It ${res}${ep.time ? " after " + (+ep.time).toFixed(1) + " s" : ""}.` + (R.imagined ? " Orange: the paths it imagined; violet: where it expected nearby road users; the badge: its predicted risk of contact." : "");
+        $("driveSum").textContent = S.km != null ? `Whole journey: ${S.km} km in ${S.stretches} stretches · ${S.completed} completed · ${S.crashes} crashes (${S.crashes_per_100km} per 100 km) · ${S.red_lights} red lights · ${S.hit_by_others} hit by others · mean ${S.mean_kmh} km/h` : "";
+        $("driveBar").hidden = false;
+      } else $("avDesc").textContent = (ep.milestone ? `${ep.ckpt === "best.pt" ? "Best checkpoint (most routes completed minus crashes on the fixed evaluation)" : "Checkpoint"} at ${Math.round(ep.steps / 1000)}k training steps, scenario ${ep.scenario + 1}: every checkpoint drives these same scenarios, so you can compare them. Replayed exactly:` : `Training episode ${ep.id + 1}, recorded at ${Math.round(ep.steps / 1000)}k training steps and replayed exactly:`) + ` TD-MPC2 driving with its full planner (MPPI over imagined futures). It ${res}${ep.time ? " after " + (+ep.time).toFixed(1) + " s" : ""}.${R.imagined ? " Orange: the paths it imagined in its possible futures; violet: where it expected nearby road users to be (dashed pink: in its other possible futures); the badge is its predicted risk of contact within 2 s." : ""}${R.opts && R.opts.genome ? " This episode used an evolved scenario." : ""}` + (R.npc && !NPCB ? " (Learned traffic is not loaded here, so the replay may differ.)" : "");
       if (env.ego) { cam.x = env.ego.x; cam.y = env.ego.y; }
     } catch (err) { console.warn("replay", err); } finally { replayBusy = false; $("loading").hidden = true; }
   }
@@ -340,7 +356,15 @@
         const r = await fetch("/api/policy?meta=1", { cache: "no-store" });
         if (!r.ok) { clearInterval(timer); return; }   // a plain web server, not the training monitor
         const m = await r.json();
-        if (!drivers.some((x) => x.replay)) {
+        if (!drivers.some((x) => x.src === "drive")) {
+          const J = await (await fetch("/api/drive", { cache: "no-store" })).json();
+          if (J.segments && J.segments.length) {
+            drivers.push({ id: "drive", replay: true, src: "drive", short: "Drive", name: "TD-MPC2 test drive", act: () => replay && replay.i < replay.ep.replay.actions.length ? replay.ep.replay.actions[replay.i++] : [-1, 0],
+              desc: "A long test drive of the best checkpoint with its full planner, through every kind of scenario." });
+            renderDrivers(); if (location.pathname === "/drive") setDriver(drivers.length - 1);
+          }
+        }
+        if (!drivers.some((x) => x.replay && !x.src)) {
           const eps = (await (await fetch("/api/episodes", { cache: "no-store" })).json()).episodes || [];
           if (eps.length) {
             drivers.push({ id: "replay", replay: true, short: "Training", name: "TD-MPC2 in training", act: () => replay && replay.i < replay.ep.replay.actions.length ? replay.ep.replay.actions[replay.i++] : [-1, 0],
@@ -445,7 +469,16 @@
   }
   let hudT = 0, honkLog = [], lastHonks = 0;
   function nearestJunction(x, y) { let best = map.nodes[0], bd = 1e9; for (const j of map.nodes) { if (j.type === "bend") continue; const d = (j.x - x) ** 2 + (j.y - y) ** 2; if (d < bd) { bd = d; best = j; } } return best; }
+  function updateDriveBar() {
+    if (!replay || replay.src !== "drive" || !journey) return;
+    const segs = journey.segments, i = replay.ep.id, before = segs.filter((q) => q.id < i), total = segs.reduce((a, q) => a + q.km_route, 0);   // along the journey's route
+    const now = env.ego ? Math.min(replay.ep.km_route, env.progress() / 1000) : replay.ep.km_route, done = before.reduce((a, q) => a + q.km_route, 0) + now;
+    const cr = before.filter((q) => q.result === "crash").length, rd = before.filter((q) => q.red).length;
+    $("driveTxt").innerHTML = `<b>Test drive</b> · ${done.toFixed(1)} / ${total.toFixed(1)} km · stretch ${i + 1}/${segs.length} · so far ${cr} crash${cr === 1 ? "" : "es"}, ${rd} red light${rd === 1 ? "" : "s"}`;
+    $("driveFill").style.width = (total ? done / total * 100 : 0).toFixed(1) + "%";
+  }
   function updateHud() {
+    updateDriveBar();
     const s = sim.summary();
     $("sTotal").firstChild.nodeValue = s.total;
     $("sFlow").firstChild.nodeValue = s.flowPerHour.toLocaleString("en-US");

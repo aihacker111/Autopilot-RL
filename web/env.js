@@ -57,6 +57,8 @@ class EgoEnv {
     this.shaping = opts.shaping ?? true;
     this.rampDecisions = opts.ramp || 0;
     this.routeM = opts.routeM || ENV.ROUTE_M;
+    this.routeLegs = opts.routeLegs || ENV.ROUTE_LEGS;   // junctions per route (a test drive uses long routes)
+    this.maxTime = opts.maxTime || 320;                 // seconds before a route times out
     this.terminalRed = opts.terminalRed ?? true;
     this.occlusion = opts.occlusion ?? true;           // the car only observes what it can see
     this.rewardV2 = opts.reward === "v2";              // the world-model driver: heavier crashes (people most), defensive driving
@@ -104,9 +106,14 @@ class EgoEnv {
   /* a route: start on the approach to node j0 from arm a0, then follow random (car-legal) turns for about routeM metres */
   makeRoute(j0, a0) {
     const sim = this.sim, legs = [];
-    let j = j0, from = a0, L = 0;
-    for (let k = 0; k < ENV.ROUTE_LEGS; k++) {
-      const to = sim.chooseExit(j, from, "car"), p = sim.path(j, from, to); legs.push({ j, from, to });
+    let j = j0, from = a0, L = 0; const seen = new Set();
+    for (let k = 0; k < this.routeLegs; k++) {
+      let to = sim.chooseExit(j, from, "car");
+      if (this.routeLegs > ENV.ROUTE_LEGS) {   // a long route (test drive): avoid dead ends and junctions already passed
+        for (let t = 0; t < 8; t++) { const nx = sim.map.nodes[j].arms[to].to; if (nx && !seen.has(nx.j)) break; to = sim.chooseExit(j, from, "car"); }
+      }
+      seen.add(j);
+      const p = sim.path(j, from, to); legs.push({ j, from, to });
       L += k === 0 ? p.len - Math.max(0, p.sStop - ENV.START_BACK) : p.len;
       const nx = sim.map.nodes[j].arms[to].to; if (!nx || L > this.routeM) break;
       j = nx.j; from = nx.arm;
@@ -153,7 +160,7 @@ class EgoEnv {
     this.t0 = this.sim.t; this.prevAct = [this.speedToAct(e.v), 0]; this.lastProg = this.progress(); this.result = null; this.crashWith = null;
     this.redLegs = new Set(); this.ep = { ret: 0, steps: 0, red: 0, minGap: 9 };
     this.routeLen = this.totalLen();
-    this.timeout = Math.min(320, 60 + (this.routeLen - this.progress()) / 2.5);
+    this.timeout = Math.min(this.maxTime, 60 + (this.routeLen - this.progress()) / 2.5);
     return this.observe();
   }
   speedToAct(v) { return v / ENV.VMAX_CMD * 2 - 1; }
@@ -208,7 +215,7 @@ class EgoEnv {
     else if (this.lastLeg() && e.s >= Math.min(e.path.len - 1, e.path.sOut + ENV.END_AFTER)) { r += 5; done = true; this.result = "ok"; }
     else if (sim.t - this.t0 > this.timeout) { r -= 2; done = true; this.result = "timeout"; }
     this.ep.ret += r; this.ep.steps++; this.decisions++;
-    const info = done ? { result: this.result, ret: this.ep.ret, time: sim.t - this.t0, red: this.ep.red, minGap: this.ep.minGap, legs: e.route.length, dist: prog, preset: sim.map.preset, kind: sim.map.nodes[e.route[0].j].kind, with: crash ? crash.u.type : null } : null;
+    const info = done ? { result: this.result, ret: this.ep.ret, time: sim.t - this.t0, red: this.ep.red, minGap: this.ep.minGap, legs: e.route.length, dist: prog, routeLen: this.routeLen, preset: sim.map.preset, kind: sim.map.nodes[e.route[0].j].kind, with: crash ? crash.u.type : null } : null;
     return { obs: this.observe(), r, done, info };
   }
   /* contact with another road user or obstacle; fault unless the other one was moving into us */

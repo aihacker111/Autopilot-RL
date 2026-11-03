@@ -198,7 +198,14 @@ def make_handler(runs, host, sim):
                 elif u.path == "/api/status": self.send(json.dumps(status(runs, host)))
                 elif u.path == "/api/log": self.send(json.dumps(tail(os.path.join(runs, "pipeline.log"), min(2000, int(q.get("n", ["200"])[0])))))
                 elif u.path == "/api/ckpt": self.send(json.dumps({"sig": sim.signature()}))
-                elif u.path == "/sim": self.send(sim.page(), "text/html; charset=utf-8")
+                elif u.path in ("/sim", "/drive"): self.send(sim.page(), "text/html; charset=utf-8")   # /drive opens on the test drive
+                elif u.path == "/api/drive":   # the test drive of rl/drive_test.py: the journey, or one stretch (?id=)
+                    d = os.path.join(runs, "drive")
+                    if "id" in q:
+                        f = os.path.join(d, f"seg_{int(q['id'][0]):03d}.json")
+                        if os.path.isfile(f): self.send(open(f, "rb").read())
+                        else: self.send(json.dumps({"error": "stretch not found"}), code=404)
+                    else: self.send(json.dumps(load(os.path.join(d, "journey.json")) or {"segments": []}))
                 elif u.path == "/api/episodes":   # recorded TD-MPC2 training episodes, replayed by the /sim page
                     d = os.path.join(runs, "tdmpc2", "episodes")
                     if "id" in q:
