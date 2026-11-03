@@ -10,10 +10,19 @@ npc:                     # learned road users (rl/npc_train.py): imitation of th
   ppo_steps: 3000        # simulation steps per worker per iteration
   stats_steps: 3000      # for the realism report (rules vs network)
 
-world_model:             # TD-MPC2 v2 (rl/tdmpc2.py): a learned world model with physics and several futures, driving by risk-aware planning (--stages wm)
-  steps: 1000000
+world_model:             # TD-MPC2 v3 (rl/tdmpc2.py): world model with physics and several futures, risk-aware planning, a safety shield, teacher corrections (--stages wm)
+  steps: 5000000         # 5x v2: a 5M-parameter model and long trips need more data
+  latent: 320            # with hidden 512: ~5.2M parameters (v2: 128 / 256, 1.3M)
+  hidden: 512
+  routes: "500,1000,2000,5000,15000,20000"   # trip length drawn per episode (m); long trips continue across map windows
+  route_w: "0.3,0.3,0.15,0.13,0.08,0.04"     # odds of each length: long trips are few (a 20 km trip is ~10,000 decisions)
+  half: 850              # half size of the training windows (m)
+  shield: 1              # safety shield on the speed command: red/amber lights, the vehicle ahead, people entering the path
+  dagger: 0.03           # share of decisions the look-ahead teacher labels (3x more in risky moments); 0 = off
+  dagger_coef: 0.5       # weight of cloning those labels in the policy loss
+  prio: 0.25             # share of each batch drawn from the seconds before a contact
   demos: 40000           # drives of the defensive teacher that seed the replay buffer (0 = from scratch)
-  envs: 4                # environments per worker
+  envs: 8                # environments per worker: twice v2, so twice as many episodes at once
   samples: 256           # candidate plans per decision
   futures: 3             # sampled futures each plan is imagined in (the dynamics has 4 hypotheses)
   horizon: 6             # decisions of 0.2 s planned ahead (1.2 s), then the learned value
@@ -27,9 +36,9 @@ world_model:             # TD-MPC2 v2 (rl/tdmpc2.py): a learned world model with
   evo_cands: 512         # genomes imagined per generation
   evo_real: 12           # of which the most promising are checked in the simulation (difficulty + realism)
   pool_p: 0.4            # share of new maps that use an evolved scenario
-  eval_n: 48
+  eval_n: 96             # episodes per evaluation (twice v2: a steadier choice of the best checkpoint)
   eval_every: 100000
-  export_every: 5000     # a snapshot for the live simulator page: monitor /sim swaps it into the car as it drives
+  export_every: 2000     # a snapshot for the live simulator page: monitor /sim swaps it into the car as it drives
 
 phase2:                  # teacher with full state: look-ahead planner -> DAgger student -> PPO fine-tuning
   eval_n: 240            # fixed evaluation scenarios

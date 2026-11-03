@@ -67,6 +67,14 @@ class EgoEnv {
     this.genome = opts.genome || null;
     this.mapSeed = opts.mapSeed ?? null;                 // a fixed map (e.g. the one exported to CARLA)
     this.pool = opts.pool || null; this.pPool = opts.pPool ?? 0.5;   // evolved scenarios mixed into training
+    // v3 (the world-model driver): long routes of a random length, continued across map windows ("stages")
+    this.routeMs = opts.routeMs || null; this.routeW = opts.routeW || null;   // route lengths (m) and their odds, e.g. [500, 1000, 2000, 5000]
+    this.stageMax = opts.stageMax || 1000;             // metres of route planned at a time inside one window
+    this.half = opts.half || null;                     // half size of the city windows (m)
+    this.stageCentres = opts.stageCentres || null;     // replay: the window of every stage, as recorded
+    this.stage = 0; this.target = 0; this.doneDist = 0; this.doneTime = 0;
+    // v3: a safety shield on the speed command, from what the car senses (the light, the stop line, who is in or entering its path)
+    this.shield = !!opts.shield; this.lastExec = [0, 0]; this.intervened = 0;
   }
   pickPreset() {
     if (this.mapOpts && this.mapOpts.preset) return this.mapOpts.preset;
@@ -86,7 +94,8 @@ class EgoEnv {
     // Phase 3: sometimes drive among an evolved population instead of the default one
     let genome = this.genome || null;
     if (!genome && this.pool && this.pool.length && this.rand() < this.pPool) genome = this.pool[Math.floor(this.rand() * this.pool.length)];
-    this.sim = new Sim(cityMap(ms, Object.assign({}, this.mapOpts || {}, { preset })), Math.floor(this.rand() * 1e9), d, { warmup: 350, genome });
+    const extra = preset !== "hcm" ? {} : Object.assign(this.half ? { half: this.half } : {}, this.stageCentres && this.stageCentres[this.stage] ? { centre: this.stageCentres[this.stage] } : {});
+    this.sim = new Sim(cityMap(ms, Object.assign({}, this.mapOpts || {}, { preset }, extra)), Math.floor(this.rand() * 1e9), d, { warmup: 350, genome });
     this.starts = null;
   }
   /* where the car may start: any arm a car may use, weighted so that every kind of road gets its share */
@@ -122,6 +131,12 @@ class EgoEnv {
   }
   reset(spec) {
     if (this.ego) this.removeEgo();
+    if (this.routeMs && !(spec && spec.stage)) {   // a new trip: draw its length
+      const W = this.routeW || this.routeMs.map(() => 1); let q = this.rand() * W.reduce((a, b) => a + b, 0), L = this.routeMs[0];
+      for (let k = 0; k < this.routeMs.length; k++) { if (q < W[k]) { L = this.routeMs[k]; break; } q -= W[k]; }
+      this.target = L; this.doneDist = 0; this.doneTime = 0; this.stage = 0;
+    }
+    if (this.target) { this.routeM = Math.min(this.stageMax, Math.max(150, this.target - this.doneDist)); this.routeLegs = 30; this.noExtend = false; }
     if (!this.sim || (this.reseedEvery && this.decisions >= this.nextReseed)) { this.newSim(); this.nextReseed = this.decisions + this.reseedEvery; }
     this.episodes++;
     for (let tries = 0; ; tries++) {
@@ -173,13 +188,16 @@ class EgoEnv {
   step(act) {
     const sim = this.sim, e = this.ego;
     const a0 = Math.max(-1, Math.min(1, act[0])), a1 = Math.max(-1, Math.min(1, act[1]));
-    e.ctrl = { vT: (a0 + 1) / 2 * ENV.VMAX_CMD, lat: a1 };
+    let vT = (a0 + 1) / 2 * ENV.VMAX_CMD; this.intervened = 0;
+    if (this.shield) { const cap = this.shieldCap(); if (vT > cap + 0.3) { this.intervened = vT - cap; vT = Math.max(0, cap); } }   // never faster than it can stop for
+    e.ctrl = { vT, lat: a1 }; this.lastExec = [vT / ENV.VMAX_CMD * 2 - 1, a1];
     let r = 0, done = false, crash = null;
     if (this.staticAhead(15)) e.overtake = sim.t + 3;   // own lane blocked by something parked: the oncoming half may be used to go round it
     const leg0 = e.legs, p0 = e.path, light0 = p0.signal ? sim.light(p0.junc, p0.from) : null, front0 = e.s + e.l2;
     for (let k = 0; k < ENV.REPEAT; k++) { sim.step(); crash = this.collision(); if (crash) break; }
     // progress along the route
     const prog = this.progress(); r += (prog - this.lastProg) * 0.1; this.lastProg = prog;
+    if (this.target && !this.noExtend && this.lastLeg() && this.routeLen - prog < 250 && this.doneDist + this.routeLen < this.target - 50) this.extendRoute();
     // red light or closed barrier: the front bumper crosses the stop line
     let ranRed = false;
     if (p0.signal && !this.redLegs.has(leg0)) {
@@ -206,17 +224,67 @@ class EgoEnv {
     const lp = e.path, li = Math.min(lp.n - 1, Math.round(e.s / lp.ds));
     if (e.v > lp.VMAX[li] + 1.5) r -= 0.04 * (e.v - lp.VMAX[li] - 1.5);   // too fast for the bend, the market, the flood
     if (this.rewardV2) r -= defensiveCost(sim, e, this.sight);
+    if (this.intervened) r -= 0.03 * Math.min(5, this.intervened);   // the shield had to step in: drive so that it does not
     if (crash) {
       done = true; this.crashWith = crash.u; this.result = crash.fault ? "crash" : "hit";
       if (!this.rewardV2) { if (crash.fault) r -= 10; }
       else r -= crash.fault ? (crash.u.kind === "ped" || crash.u.kind === "buffalo" ? 40 : 25) : 5;   // being hit: a defensive driver often avoids it
     }
     else if (ranRed && this.terminalRed) { done = true; this.result = "red"; }
-    else if (this.lastLeg() && e.s >= Math.min(e.path.len - 1, e.path.sOut + ENV.END_AFTER)) { r += 5; done = true; this.result = "ok"; }
+    else if (this.lastLeg() && e.s >= Math.min(e.path.len - 1, e.path.sOut + ENV.END_AFTER)) {
+      // the end of the planned route: the end of the trip, or of this window (the trip goes on in the next one: nextStage)
+      if (this.target && this.doneDist + this.routeLen < this.target - 50) { r += 1; done = true; this.result = "stage"; }
+      else { r += 5; done = true; this.result = "ok"; }
+    }
     else if (sim.t - this.t0 > this.timeout) { r -= 2; done = true; this.result = "timeout"; }
     this.ep.ret += r; this.ep.steps++; this.decisions++;
-    const info = done ? { result: this.result, ret: this.ep.ret, time: sim.t - this.t0, red: this.ep.red, minGap: this.ep.minGap, legs: e.route.length, dist: prog, routeLen: this.routeLen, preset: sim.map.preset, kind: sim.map.nodes[e.route[0].j].kind, with: crash ? crash.u.type : null } : null;
+    const info = done ? { result: this.result, ret: this.ep.ret, time: this.doneTime + sim.t - this.t0, red: this.ep.red, minGap: this.ep.minGap, legs: e.route.length, dist: this.doneDist + prog, routeLen: this.target || this.routeLen,
+      stages: this.stage + 1, preset: sim.map.preset, kind: sim.map.nodes[e.route[0].j].kind, with: crash ? crash.u.type : null } : null;
     return { obs: this.observe(), r, done, info };
+  }
+  /* v3 safety shield: the highest speed command that still lets the car stop for what it senses. A red light (or an
+     amber it can still stop for) at the stop line; any road user in its path, or entering it before the car gets there
+     (a jaywalker, a motorbike cutting in), with the room to stop behind it. Uses only what the car can see. */
+  shieldCap() {
+    // B: the deceleration it counts on, below what the car can do (its speed controller brakes progressively)
+    const sim = this.sim, e = this.ego, p = e.path, B = 3.0, S0 = 2.5, stop = (d) => Math.sqrt(Math.max(0, 2 * B * Math.max(0, d)));
+    let cap = Infinity;
+    if (p.signal) {
+      const L = sim.light(p.junc, p.from), d = p.sStop - e.s - e.l2;
+      if (L.c !== "G" && d > -0.5 && (L.c === "R" || d > e.v * e.v / (2 * 6.5))) cap = Math.min(cap, d < 3 ? 0 : stop(d - 2.5));   // aim 2.5 m short: the car still rolls a little
+    }
+    const half = e.w2 + 0.6;
+    for (const u of this.seen || []) {
+      if (u === e || u.phantom) continue;
+      const dx = u.x - e.x, dy = u.y - e.y, fx = dx * e.tx + dy * e.ty, fy = dx * e.nx + dy * e.ny;
+      if (fx <= 0 || fx > 45) continue;
+      if ((u.kind === "ped" || u.kind === "buffalo") && fx < 18 && Math.abs(fy) < 5.5)   // a person beside the path may step in: slow down beforehand
+        cap = Math.min(cap, Math.max(1.5, 1.5 + 0.45 * (fx - 2) + 0.6 * Math.max(0, Math.abs(fy) - 2)));
+      const w = half + (u.w2 || 0.4), vlat = (u.vx || 0) * e.nx + (u.vy || 0) * e.ny, tReach = fx / Math.max(1.5, e.v);
+      const fyAt = fy + vlat * Math.min(3, tReach);   // where it will be sideways when the car gets there
+      if (Math.abs(fy) > w && Math.abs(fyAt) > w && Math.sign(fy) === Math.sign(fyAt)) continue;
+      const gap = fx - e.l2 - (u.l2 || 0.5), vAlong = Math.abs(fy) <= w ? Math.max(0, (u.vx || 0) * e.tx + (u.vy || 0) * e.ty) : 0;
+      cap = Math.min(cap, Math.sqrt(vAlong * vAlong + 2 * B * Math.max(0, gap - S0)));
+    }
+    return cap;
+  }
+  /* v3: the route goes on from its last junction while the window allows (no dead ends, no loops) */
+  extendRoute() {
+    const e = this.ego, last = e.route[e.route.length - 1], nx = this.sim.map.nodes[last.j].arms[last.to].to;
+    if (!nx) { this.noExtend = true; return; }
+    const keep = this.routeM; this.routeM = Math.min(this.stageMax, this.target - this.doneDist - this.routeLen);
+    const more = this.makeRoute(nx.j, nx.arm); this.routeM = keep;
+    if (!more.length) { this.noExtend = true; return; }
+    const before = this.routeLen; e.route.push(...more); this.routeLen = this.totalLen(); this.timeout += (this.routeLen - before) / 2.5;
+  }
+  /* v3: the trip continues in a fresh window (the "stage" result of step): the same trip, its totals kept */
+  nextStage() {
+    const keep = { ep: this.ep, doneDist: this.doneDist + this.routeLen, doneTime: this.doneTime + this.sim.t - this.t0, target: this.target };
+    this.doneDist = keep.doneDist; this.doneTime = keep.doneTime;
+    this.stage++; this.newSim(); this.nextReseed = this.decisions + this.reseedEvery;
+    const o = this.reset({ stage: true });
+    this.ep = keep.ep; this.target = keep.target;
+    return o;
   }
   /* contact with another road user or obstacle; fault unless the other one was moving into us */
   collision() {

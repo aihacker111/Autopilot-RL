@@ -334,8 +334,8 @@
       else { const live = eps.filter((e) => !e.milestone); pick = (pickId != null && eps.find((e) => e.id === pickId)) || live.slice().reverse().find((e) => !seenEp.has(e.id)) || live[live.length - 1] || eps[eps.length - 1]; seenEp.add(pick.id); }
       $("epPick").value = pickId != null ? String(pick.id) : "auto";
       const ep = await (await fetch(`/api/${src}?id=${pick.id}`, { cache: "no-store" })).json(), R = ep.replay;
-      const half = (R.opts.mapOpts && R.opts.mapOpts.half) || 600;
-      await city.ensure(R.centre[0], R.centre[1], half + 100);
+      const half = (R.opts.mapOpts && R.opts.mapOpts.half) || R.opts.half || 600;
+      for (const c of R.opts.stageCentres || [R.centre]) if (c) await city.ensure(c[0], c[1], half + 100);   // every window of the trip (v3: long trips change window)
       const keep = getNpcBrain(); setNpcBrain(R.npc ? NPCB : null);
       const e = new EgoEnv(Object.assign({}, R.opts, { seed: R.seed, mapOpts: Object.assign({ centre: R.centre }, R.opts.mapOpts || {}) }));
       const o = e.reset(); setNpcBrain(keep);
@@ -443,10 +443,18 @@
   const stepLen = DT * ENV.REPEAT;
   function tick() {
     if (drivers[drv].replay && (!replay || replayBusy || replay.waiting)) return;   // the next recorded episode is loading, or a live stretch has not driven further yet
-    if (replay && env.ego) { const im = replay.ep.replay.imagined; replay.imag = im ? im[replay.i] : null; replay.anchor = [env.ego.x, env.ego.y, env.ego.h]; }
+    if (replay && env.ego) {   // a long trip records every k-th imagination: hold the last one (with the pose it was imagined from)
+      const im = replay.ep.replay.imagined, q = im ? im[replay.i] : null;
+      if (q || !im || replay.i === 0) { replay.imag = q; replay.anchor = [env.ego.x, env.ego.y, env.ego.h]; }
+    }
     const snap = new Map(); for (const v of sim.vehicles) snap.set(v, [v.x, v.y, v.h]); for (const a of sim.agents) if (!a.static) snap.set(a, [a.x, a.y, a.h]);
     lastAct = drivers[drv].act(env);
     const r = env.step(lastAct); curObs = r.obs;
+    if (replay && r.done && r.info.result === "stage") {   // v3: the trip goes on in the next window
+      curObs = env.nextStage(); sim = env.sim; map = sim.map; layers = new CityLayers(map, replay.ep.replay.seed * 3 + 1 + env.stage, ppm, 80, W < 680 ? 10 : 16); mini.dirty = true;
+      if (env.ego) { cam.x = env.ego.x; cam.y = env.ego.y; }
+      toast(`New part of the trip (window ${env.stage + 1})`, "go"); return;
+    }
     if (replay) {
       const c = replay.ep.replay.check.find((q) => q[0] === replay.i);
       if (c && env.ego && !replay.drift && Math.hypot(env.ego.x - c[1], env.ego.y - c[2]) > 1) { replay.drift = true; console.warn("replay drifted from the recording at decision", replay.i); }
@@ -547,10 +555,11 @@
     (im.ghosts || []).forEach(([t, gs, f]) => {   // most likely future: solid violet; the other futures: dashed pink, at the end of the horizon
       const a = t === tMax ? 0.4 : 0.65, rgb = f ? "235,90,170" : "150,110,255";
       g.setLineDash(f ? [0.35, 0.3] : []);
-      for (const [x, y, ped] of gs) {
-        const q = W_([x, y]);
+      for (const [x, y, ped, dir] of gs) {   // dir: the way it is moving (recorded since the ghosts skip standing things)
+        const q = W_([x, y]), ang = A[2] + (dir ?? 0);
         g.strokeStyle = `rgba(${rgb},${a + 0.25})`; g.fillStyle = `rgba(${rgb},${f ? 0.06 : a * 0.35})`; g.lineWidth = 0.12;
-        g.beginPath(); if (ped) g.arc(q[0], q[1], 0.45, 0, 6.3); else g.ellipse(q[0], q[1], 1.1, 0.6, A[2], 0, 6.3); g.fill(); g.stroke();
+        g.beginPath(); if (ped) g.arc(q[0], q[1], 0.45, 0, 6.3); else g.ellipse(q[0], q[1], 1.1, 0.5, ang, 0, 6.3); g.fill(); g.stroke();
+        if (dir != null && !ped) { g.beginPath(); g.moveTo(q[0] + Math.cos(ang) * 1.1, q[1] + Math.sin(ang) * 1.1); g.lineTo(q[0] + Math.cos(ang) * 1.6, q[1] + Math.sin(ang) * 1.6); g.stroke(); }   // nose: which way it goes
       }
     });
     g.setLineDash([]);

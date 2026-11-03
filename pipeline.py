@@ -133,7 +133,8 @@ def phase_wm(c, W, dev, redo):
     stage("wm.tdmpc2")
     if not (os.path.exists(res) and not redo):
         opt = []   # optional settings of the world model v2, passed through when present in the config
-        for k in ("horizon", "futures", "risk", "coll_cost", "heads", "gamma", "reward", "defensive", "reseed", "evo_every", "evo_start", "evo_cands", "evo_states", "evo_real", "evo_episodes", "pool_p", "realism", "iters"):
+        for k in ("horizon", "futures", "risk", "coll_cost", "heads", "gamma", "reward", "defensive", "reseed", "evo_every", "evo_start", "evo_cands", "evo_states", "evo_real", "evo_episodes", "pool_p", "realism", "iters",
+                  "latent", "hidden", "shield", "routes", "route_w", "half", "dagger", "dagger_coef", "prio"):
             if k in c: opt += ["--" + k.replace("_", "-"), c[k]]
         sh([PY, os.path.join(RL, "tdmpc2.py"), "--steps", c["steps"], "--demos", c["demos"], "--workers", W, "--envs", c["envs"], "--samples", c["samples"], "--eval-n", c["eval_n"], "--eval-every", c["eval_every"],
             "--export-every", c.get("export_every", 2000), *opt, "--device", dev, "--out", out])
@@ -192,7 +193,7 @@ if __name__ == "__main__":
         cfg["phase3"].update(gens=1, budget=8, batch=4, episodes=1, ft_steps=1024, heldout=2); cfg["phase3"]["gate"]["max_default_drop"] = 1
         cfg["phase4"].update(encoder="tiny", rounds=1, episodes=2, eval_episodes=1, epochs=3, preset="city")
         cfg.setdefault("npc", {}).update(bc_steps=1500, iters=2, ppo_steps=900, stats_steps=900)
-        cfg.setdefault("world_model", {}).update(steps=600, demos=200, envs=2, samples=64, iters=2, eval_n=2, eval_every=0, evo_every=300, evo_start=300, evo_cands=16, evo_states=16, evo_real=2, evo_episodes=1)
+        cfg.setdefault("world_model", {}).update(steps=600, demos=200, envs=2, samples=64, iters=2, eval_n=2, eval_every=0, evo_every=300, evo_start=300, evo_cands=16, evo_states=16, evo_real=2, evo_episodes=1, routes="500,1000", route_w="1,1")
         a.force = True
     W = (os.cpu_count() or 4) - 2 if cfg["workers"] == "auto" else int(cfg["workers"]); W = max(1, min(W, 64))
     try: import torch; dev = ("cuda" if torch.cuda.is_available() else "cpu") if cfg["device"] == "auto" else cfg["device"]

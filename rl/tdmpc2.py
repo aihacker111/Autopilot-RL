@@ -57,6 +57,7 @@ PHYS_F = (0, 1, 2, 3, 13, 15)             # of each: ahead, sideways, relative s
 PHYS_IDX = [0] + [HEAD + j * NB + f for j in range(NPH) for f in PHYS_F]
 PD = len(PHYS_IDX)
 COLL_K = (5, 10, 15)                      # contact within 1, 2, 3 s (decisions of 0.2 s)
+AUXD = 10                                 # aux per decision: contact, dx, dy, dh, executed action (2), teacher action (2), has label, shield cut
 KIN_SCALE = np.array([4.0, 1.0, 0.5], np.float32)   # the car's move in one decision (dx, dy, dh), normalised
 RANGE = 30.0                              # ENV.RANGE: neighbour positions are divided by it
 ROOT = os.path.dirname(HERE)
@@ -248,13 +249,19 @@ class TDMPC2:
             risk = max(risk, float(torch.sigmoid(self.m.collision(z, g)[0, :, 1]).max()))   # contact within 2 s, any future
             for f in range(Fn): paths[f].append([round(float(x[f]), 2), round(float(y[f]), 2)])
             if t in ks:   # ghosts: the most likely future at mid-horizon, every future at the end
-                phs = self.m.physics(z[0]).cpu().numpy()
+                phs = self.m.physics(z[0]).cpu().numpy(); main = []
                 for f in (range(Fn) if t == H - 1 else [0]):
-                    ph, gs = phs[f], []; c, s = math.cos(float(h[f])), math.sin(float(h[f]))
+                    ph, gs = phs[f], []; c, s = math.cos(float(h[f])), math.sin(float(h[f])); ve = float(ph[0]) * 10
                     for j in range(NPH):
                         fx, fy, ped, pres = float(ph[1 + j * 6]) * RANGE, float(ph[2 + j * 6]) * RANGE, float(ph[5 + j * 6]), float(ph[6 + j * 6])
-                        if pres > 0.5: gs.append([round(float(x[f]) + fx * c - fy * s, 2), round(float(y[f]) + fx * s + fy * c, 2), int(ped > 0.5)])
-                    ghosts.append([t + 1, gs, f])
+                        ax, ay = float(ph[3 + j * 6]) * 10 + ve, float(ph[4 + j * 6]) * 10   # its own velocity, in the car's frame
+                        if pres < 0.5 or (ped < 0.5 and math.hypot(ax, ay) < 1.0): continue   # parked and standing things are not drawn (people are)
+                        gx, gy = float(x[f]) + fx * c - fy * s, float(y[f]) + fx * s + fy * c
+                        if f and any(math.hypot(gx - q[0], gy - q[1]) < 1.0 for q in main): continue   # another future only where it differs
+                        gs.append([round(gx, 2), round(gy, 2), int(ped > 0.5), round(float(h[f]) + math.atan2(ay, ax), 2)])
+                        if len(gs) >= 4: break   # the 4 nearest moving road users (the slots are nearest first)
+                    if f == 0: main = gs
+                    if gs: ghosts.append([t + 1, gs, f])
         return {"paths": paths, "risk": round(risk, 3), "ghosts": ghosts}
 
     @torch.no_grad()
@@ -275,8 +282,9 @@ class TDMPC2:
         return torch.cat(vals).numpy(), torch.cat(cols).numpy()
 
     def update(self, batch, bc=None, bc_w=0.0):
-        a = self.a; o, act, r, term, no, aux, g, clab = batch   # (H, B, ...): obs, action, reward, terminal, next obs, [contact, dx, dy, dh], genome, contact-within labels
+        a = self.a; o, act, r, term, no, aux, g, clab = batch   # (H, B, ...): obs, action, reward, terminal, next obs, aux (AUXD), genome, contact-within labels
         H, B = act.shape[0], act.shape[1]
+        act = aux[..., 4:6]   # what was actually executed (after the safety shield): the world is a consequence of that
         with torch.no_grad():
             nz = self.m.enc(no)                                   # latent of every next observation (consistency targets)
             pa, _, _ = self.m.policy(nz)
@@ -311,12 +319,15 @@ class TDMPC2:
         pl = (-(a.ent_coef * -logp + qv / self.scale) * w).mean()
         if bc is not None and bc_w > 0:
             bo, ba = bc; _, _, bmu = self.m.policy(self.m.enc(bo).detach()); pl = pl + bc_w * F.mse_loss(bmu, ba)
+        dl = torch.zeros((), device=self.dev); lm = aux[..., 8:9]   # DAgger: the teacher's action in situations the car itself got into
+        if a.dagger_coef > 0 and float(lm.sum()) > 0:
+            dl = ((mu - aux[..., 6:8]) ** 2 * lm).sum() / (lm.sum() * ACT); pl = pl + a.dagger_coef * dl
         self.pi_opt.zero_grad(); pl.backward(); nn.utils.clip_grad_norm_(self.m.pi.parameters(), a.grad_clip); self.pi_opt.step()
         with torch.no_grad():
             for q, tq in zip(self.m.qs, self.target_qs):
                 for p, tp in zip(q.parameters(), tq.parameters()): tp.lerp_(p, a.tau)
         f = lambda x: float(x.detach()) / H
-        return {"loss": loss.item(), "cons": f(cons), "mode": f(mode_l), "rew": f(rl), "val": f(vl), "coll": f(cl), "phys": f(pl_), "kin": f(kl), "pi": pl.item(), "grad": float(gn), "qscale": self.scale}
+        return {"loss": loss.item(), "cons": f(cons), "mode": f(mode_l), "rew": f(rl), "val": f(vl), "coll": f(cl), "phys": f(pl_), "kin": f(kl), "pi": pl.item(), "dagger": float(dl), "grad": float(gn), "qscale": self.scale}
 
     def save(self, path, steps):
         torch.save({"model": self.m.state_dict(), "target": [q.state_dict() for q in self.target_qs], "scale": self.scale, "steps": steps, "args": vars(self.a)}, path)
@@ -335,15 +346,22 @@ class Buffer:
         self.o = np.zeros((n_env, cap, OBS), np.float16); self.no = np.zeros((n_env, cap, OBS), np.float16)
         self.a = np.zeros((n_env, cap, ACT), np.float32); self.r = np.zeros((n_env, cap), np.float32)
         self.term = np.zeros((n_env, cap), np.float32); self.done = np.ones((n_env, cap), bool); self.len = 0; self.ptr = 0
-        self.aux = np.zeros((n_env, cap, 4), np.float32); self.g = np.zeros((n_env, cap, GD), np.float16)
+        self.aux = np.zeros((n_env, cap, AUXD), np.float32); self.g = np.zeros((n_env, cap, GD), np.float16)
+        self.contacts = deque(maxlen=50000)   # (env, index) of every decision that ended in contact
     def add(self, o, a, r, done, term, no, aux, g):
         i = self.ptr
         self.o[:, i], self.a[:, i], self.r[:, i], self.done[:, i], self.term[:, i], self.no[:, i], self.aux[:, i], self.g[:, i] = o, a, r, done, term, no, aux, g
+        for e in np.nonzero(aux[:, 0] > 0.5)[0]: self.contacts.append((int(e), i))
         self.ptr = (self.ptr + 1) % self.cap; self.len = min(self.cap, self.len + 1)
-    def sample(self, B, H):
+    def sample(self, B, H, prio=0.0):
         L = max(COLL_K); span = H + L
         hi = self.len - span if self.len < self.cap and self.len > span + 1 else max(1, self.len - H)
         e = np.random.randint(0, self.n, B * 3); t = np.random.randint(0, max(1, hi), B * 3)
+        npri = int(B * prio) if self.contacts else 0
+        if npri:   # prioritised: sequences in the seconds before a contact (rare, and what matters most)
+            pick = [self.contacts[k] for k in np.random.randint(0, len(self.contacts), npri)]
+            pe = np.array([q[0] for q in pick]); pt = (np.array([q[1] for q in pick]) - np.random.randint(0, H + 10, len(pick))) % self.cap
+            e = np.concatenate([pe, e]); t = np.concatenate([pt, t])
         if self.len == self.cap: t = (self.ptr + t) % self.cap
         idx = (t[:, None] + np.arange(H)[None]) % self.cap
         ok = ~self.done[e[:, None], idx[:, :-1]].any(1) if H > 1 else np.ones(len(e), bool)
@@ -389,7 +407,7 @@ def evaluate(agent, n, workers, device, explore=False):
     eps = []
     for s0 in range(0, n, max(1, workers) * 4):
         chunk = specs[s0:s0 + max(1, workers) * 4]
-        env = VecEnv(1, len(chunk), extra={"specs": chunk})
+        env = VecEnv(1, len(chunk), extra={"specs": chunk, "shield": getattr(agent.a, "shield", 0), "reward": getattr(agent.a, "reward", "v1")})
         obs = env.reset(); alive = np.ones(len(chunk), bool); agent.prev_mean = None; res = [None] * len(chunk)
         g = np.tile(G_DEFAULT, (len(chunk), 1))
         while alive.any():
@@ -425,6 +443,9 @@ def save_episode(out, i, steps, info, rp, keep, extra=None):
     """one training episode (seed + the actions TD-MPC2 chose + what it imagined), for an exact replay on /sim"""
     d = os.path.join(out, "episodes"); os.makedirs(d, exist_ok=True)
     meta = {"id": i, "steps": steps, "result": info.get("result"), "time": info.get("time"), "legs": info.get("legs"), "red": bool(info.get("red")), "evolved": bool(rp.get("opts", {}).get("genome")), **(extra or {})}
+    im = rp.get("imagined")
+    if im and len(im) > 3000:   # a long trip: keep what it imagined every k-th decision (the page holds the last one), so the file stays small
+        k = math.ceil(len(im) / 3000); rp = dict(rp, imagined=[q if j % k == 0 else None for j, q in enumerate(im)])
     f = os.path.join(d, f"ep_{i:06d}.json"); json.dump(dict(meta, replay=rp), open(f + ".tmp", "w")); os.replace(f + ".tmp", f)
     idx = os.path.join(d, "index.json")
     try: L = json.load(open(idx))
@@ -563,7 +584,8 @@ def train(a):
     torch.manual_seed(a.seed); np.random.seed(a.seed); random.seed(a.seed)
     dev = torch.device(a.device); os.makedirs(a.out, exist_ok=True)
     agent = TDMPC2(a, dev)
-    extra = {"genomeSpace": GSPACE, "reward": a.reward, "reseedEvery": a.reseed}
+    extra = {"genomeSpace": GSPACE, "reward": a.reward, "reseedEvery": a.reseed, "shield": a.shield, "dagger": a.dagger}
+    if a.routes: extra.update(routeMs=[int(x) for x in str(a.routes).split(",")], routeW=[float(x) for x in str(a.route_w).split(",")] if a.route_w else None, half=a.half)
     env = VecEnv(a.workers, a.envs, a.seed, density_range=[0.4, 1.1], extra=extra, extra0={"showcase": 1} if a.replays else None)
     n_ep, imag = 0, []
     N = env.n; buf = Buffer(N, max(1000, a.buffer // N), dev)
@@ -583,21 +605,26 @@ def train(a):
             for t in range(n1):
                 row = demo[w * n1 + t]
                 dbuf.o[w, t], dbuf.a[w, t], dbuf.r[w, t], dbuf.done[w, t], dbuf.term[w, t] = row[:OBS], row[OBS:OBS + 2], row[OBS + 2], row[OBS + 3] > 0.5, row[OBS + 4]
-                dbuf.no[w, t], dbuf.aux[w, t], dbuf.g[w, t] = row[OBS + 5:2 * OBS + 5], row[2 * OBS + 5:2 * OBS + 9], G_DEFAULT
+                a4 = row[2 * OBS + 5:2 * OBS + 9]; act = row[OBS:OBS + 2]
+                dbuf.no[w, t], dbuf.aux[w, t], dbuf.g[w, t] = row[OBS + 5:2 * OBS + 5], np.concatenate([a4, act, act, [1.0, 0.0]]), G_DEFAULT   # the teacher's own actions: executed and labels
         dbuf.len = n1
     hist, log, steps, upd, t0, last_eval, stats = deque(maxlen=200), [], 0, 0, time.time(), 0, {}
+    shield_n = label_n = dec_n = 0
     while steps < a.steps:
         rec = bool(a.replays)
         act = np.random.uniform(-1, 1, (N, ACT)).astype(np.float32) if steps < a.seed_steps and demo is None else agent.plan(obs, gcur, record=rec)
         if rec: imag.append(agent.imagined if not (steps < a.seed_steps and demo is None) else None)
         nobs, rew, done, infos = env.step(act)
-        term = np.array([bool(d) and (inf or {}).get("result") not in ("timeout",) for d, inf in zip(done, infos)], np.float32)
+        term = np.array([bool(d) and (inf or {}).get("result") not in ("timeout", "stage") for d, inf in zip(done, infos)], np.float32)   # a new window: truncated, not terminal
+        shield_n += int((env.aux[:, 9] > 0).sum()); label_n += int(env.aux[:, 8].sum()); dec_n += N
         nxt = nobs.copy()
         for i, inf in enumerate(infos):
             rp = inf.pop("replay", None) if inf else None
             if rp and rp.get("centre"): rp["imagined"] = imag[-len(rp["actions"]):] if len(imag) >= len(rp["actions"]) else None; save_episode(a.out, n_ep, steps, inf, rp, a.replays); n_ep += 1
             if rp is not None: imag = []
-            if inf: hist.append(inf); nxt[i] = np.array(inf.get("terminal", nobs[i]), np.float32)
+            if inf:
+                nxt[i] = np.array(inf.get("terminal", nobs[i]), np.float32)
+                if inf.get("result") != "stage": hist.append(inf)   # a trip ends with its result; a new window is not an end
         buf.add(obs, act, rew, done, term, nxt, env.aux, gcur); obs = nobs; gcur = env.gen; steps += N
         if any(done): agent.prev_mean = None if all(done) else agent.prev_mean
         if steps >= a.seed_steps or demo is not None:
@@ -605,7 +632,7 @@ def train(a):
                 H1 = a.horizon
                 if dbuf is not None and random.random() < a.demo_frac * max(0.2, 1 - steps / max(1, a.steps)):
                     batch = dbuf.sample(a.batch, H1)
-                else: batch = buf.sample(a.batch, H1) if buf.len > H1 + 2 else dbuf.sample(a.batch, H1)
+                else: batch = buf.sample(a.batch, H1, a.prio) if buf.len > H1 + 2 else dbuf.sample(a.batch, H1)
                 if batch[0].shape[1] < 8: continue
                 bc = None; bcw = a.bc * max(0.0, 1 - steps / max(1, a.bc_steps))
                 if dbuf is not None and bcw > 0:
@@ -615,8 +642,11 @@ def train(a):
             note(a.out, phase="evolve", total=a.steps, steps=steps); evo.generation(agent, buf, env, steps); agent.prev_mean = None
         if steps // a.log_every != (steps - N) // a.log_every:
             m = lambda k: sum(e["result"] == k for e in hist) / max(1, len(hist))
-            row = {"steps": steps, "minutes": round((time.time() - t0) / 60, 1), "ok": round(m("ok"), 3), "crash": round(m("crash"), 3), "hit": round(m("hit"), 3), "timeout": round(m("timeout"), 3),
+            km = sum(e.get("dist", 0) for e in hist) / 1000; ncr = sum(e["result"] == "crash" for e in hist)
+            row = {"steps": steps, "minutes": round((time.time() - t0) / 60, 1), "ok": round(m("ok"), 3), "crash": round(m("crash"), 3), "hit": round(m("hit"), 3), "timeout": round(m("timeout"), 3), "red": round(m("red"), 3),
+                   "crash_per_100km": round(ncr / max(1e-6, km) * 100, 1), "shield": round(shield_n / max(1, dec_n), 4), "labels": round(label_n / max(1, dec_n), 4),
                    "updates": upd, **{k: round(v, 4) for k, v in stats.items()}, **({"evo_cells": len(evo.archive.cells)} if evo else {})}
+            shield_n = label_n = dec_n = 0
             log.append(row); print(json.dumps(row), flush=True); json.dump(log, open(os.path.join(a.out, "log.json"), "w"), indent=1)
             note(a.out, phase="train", total=a.steps, **row)
         if a.export_every and upd and steps // a.export_every != (steps - N) // a.export_every:   # a snapshot for the live simulator page (no evaluation)
@@ -643,12 +673,18 @@ def parse():
     p.add_argument("--reward", default="v2", help="v2: heavier crashes (people most), being hit, defensive driving; v1: the reward of phases 2-3")
     p.add_argument("--defensive", type=int, default=1, help="demonstrations by the defensive teacher")
     p.add_argument("--reseed", type=int, default=600, help="decisions between fresh maps per environment (evolved scenarios enter with new maps)")
+    p.add_argument("--shield", type=int, default=1, help="safety shield on the speed command (red lights, the vehicle ahead, people entering the path)")
+    p.add_argument("--routes", default="500,1000,2000,5000,15000,20000", help="trip lengths (m) drawn per episode; long trips continue across map windows ('' = short routes)")
+    p.add_argument("--route-w", default="0.3,0.3,0.15,0.13,0.08,0.04", help="odds of each trip length"); p.add_argument("--half", type=int, default=850, help="half size of the training windows (m)")
+    p.add_argument("--dagger", type=float, default=0.03, help="share of decisions the look-ahead teacher labels (3x more in risky moments); 0 = off")
+    p.add_argument("--dagger-coef", type=float, default=0.5, help="weight of cloning those labels in the policy loss")
+    p.add_argument("--prio", type=float, default=0.25, help="share of each batch drawn from the seconds before a contact")
     p.add_argument("--demos", type=int, default=40000, help="teacher decisions to start the buffer with (0 = learn from scratch)")
     p.add_argument("--demo-frac", type=float, default=0.5); p.add_argument("--bc", type=float, default=1.0, help="weight of cloning the teacher in the policy loss (fades out)")
     p.add_argument("--bc-steps", type=int, default=300_000)
     p.add_argument("--seed-steps", type=int, default=5000); p.add_argument("--buffer", type=int, default=1_000_000); p.add_argument("--batch", type=int, default=256)
     p.add_argument("--utd", type=float, default=0.5, help="gradient updates per environment step")
-    p.add_argument("--latent", type=int, default=128); p.add_argument("--hidden", type=int, default=256); p.add_argument("--num-q", type=int, default=5)
+    p.add_argument("--latent", type=int, default=320); p.add_argument("--hidden", type=int, default=512); p.add_argument("--num-q", type=int, default=5)   # ~5.2M parameters
     p.add_argument("--heads", type=int, default=4, help="hypotheses of the dynamics (different futures)")
     p.add_argument("--horizon", type=int, default=6, help="planning horizon in decisions of 0.2 s"); p.add_argument("--iters", type=int, default=5); p.add_argument("--samples", type=int, default=256)
     p.add_argument("--futures", type=int, default=3, help="sampled futures per candidate plan"); p.add_argument("--risk", type=float, default=0.5, help="weight of the worst futures vs the mean")

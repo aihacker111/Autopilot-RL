@@ -7,7 +7,8 @@ Object.assign(global, require(path.join(W, "npc.js")));
 if (process.env.LOTUS_NPC) { try { setNpcBrain(new NpcBrain(JSON.parse(require("fs").readFileSync(process.env.LOTUS_NPC, "utf8")))); } catch (e) { process.stderr.write("LOTUS_NPC: " + e.message + "\n"); } }   // learned traffic (rl/npc_train.py)
 
 Object.assign(global, require(path.join(W, "sim.js")));
-const { EgoEnv, ENV } = require(path.join(W, "env.js"));
+Object.assign(global, require(path.join(W, "env.js")));   // global: the teacher (planner.js) uses ENV and defensiveCost too
+const { EgoEnv, ENV } = global;
 const rl = require("readline").createInterface({ input: process.stdin });
 let envs = [];
 // "showcase": env 0 of the first training worker starts every episode from a fresh, seeded environment and records the actions it
@@ -18,8 +19,10 @@ function showEnv(k) {
   if (pool && pool.length && r() < pPool) opts.genome = pool[Math.floor(r() * pool.length)];   // an evolved scenario, recorded with the episode
   return new EgoEnv(opts);
 }
-// world-model extras ("aux"): per decision, contact (any collision), how the car moved in its own frame, and the scenario genome
+// world-model extras ("aux"): per decision, contact (any collision), how the car moved in its own frame, the action actually
+// executed (after the safety shield), the teacher's action where it was asked (DAgger), how much the shield cut; and the genome
 let G = null;   // { keys, lo, hi, def } from tdmpc2.py
+let dagger = 0, teacher = null;   // probability of asking the look-ahead teacher for the right action (more often when it is risky)
 const gvec = (e) => { if (!G) return []; const g = e.sim && e.sim.genome; return G.keys.map((k, i) => { const v = g && g[k] != null ? g[k] : G.def[i]; return Math.round(((v - G.lo[i]) / (G.hi[i] - G.lo[i]) * 2 - 1) * 1e3) / 1e3; }); };
 const pack = (a) => Array.from(a, (x) => Math.round(x * 1e4) / 1e4);
 const send = (o) => process.stdout.write(JSON.stringify(o) + "\n");
@@ -27,9 +30,12 @@ rl.on("line", (line) => {
   const m = JSON.parse(line);
   if (m.cmd === "init") {
     envs = []; G = m.genomeSpace || null;
-    const common = { shaping: m.shaping ?? true, reward: m.reward, defensive: m.defensive };
+    const common = Object.assign({ shaping: m.shaping ?? true, reward: m.reward, defensive: m.defensive }, m.shield ? { shield: true } : {});
+    const trip = Object.assign({}, common, m.routeMs ? { routeMs: m.routeMs, routeW: m.routeW, half: m.half } : {});   // training: long routes of random length (v3)
+    dagger = m.dagger || 0;
+    if (dagger && !teacher) { Object.assign(global, require(path.join(W, "planner.js"))); teacher = new LookaheadPlanner({ defensive: true }); }
     if (m.specs) for (const sp of m.specs) envs.push(new EgoEnv(Object.assign({ seed: sp.seed, density: sp.density, mapOpts: { preset: sp.preset || (getHcmCity() ? "hcm" : "city") }, reseedEvery: 0 }, common)));   // a fixed evaluation suite (as eval.js)
-    else for (let i = 0; i < m.n; i++) envs.push(new EgoEnv(Object.assign({ seed: m.seed * 1000 + i, density: m.density, densityRange: m.densityRange, ramp: m.ramp || 0, pool: m.pool, pPool: m.pPool, reseedEvery: m.reseedEvery }, common)));
+    else for (let i = 0; i < m.n; i++) envs.push(new EgoEnv(Object.assign({ seed: m.seed * 1000 + i, density: m.density, densityRange: m.densityRange, ramp: m.ramp || 0, pool: m.pool, pPool: m.pPool, reseedEvery: m.reseedEvery }, trip)));
     if (m.journey) {   // a test drive: one environment per stretch, at a named place, with a given traffic genome; every action recorded
       const city = getHcmCity();
       envs = m.journey.map((sp) => {
@@ -42,7 +48,7 @@ rl.on("line", (line) => {
         const e = new EgoEnv(opts); e.rec = { opts, centre: c, acts: [], chk: [] }; return e;
       });
     }
-    if (m.showcase && !m.specs && envs.length) { show = { base: (m.seed * 1000 + 777) * 1000, k: 0, opts: Object.assign({ densityRange: m.densityRange, reseedEvery: 0 }, common), acts: [], chk: [] }; envs[0] = showEnv(0); }
+    if (m.showcase && !m.specs && envs.length) { show = { base: (m.seed * 1000 + 777) * 1000, k: 0, opts: Object.assign({ densityRange: m.densityRange, reseedEvery: 0 }, trip), acts: [], chk: [], centres: [] }; envs[0] = showEnv(0); }
     send({ obs_dim: ENV.OBS_DIM, act_dim: ENV.ACT_DIM, ...(m.journey ? { journey: envs.map((e) => ({ seed: e.rec.opts.seed, opts: e.rec.opts, centre: e.rec.centre, npc: !!process.env.LOTUS_NPC })) } : {}) });
   } else if (m.cmd === "pool") {   // evolved scenario genomes: mixed into every environment's next map (and the next showcase episode)
     pool = m.pool; pPool = m.p;
@@ -53,15 +59,25 @@ rl.on("line", (line) => {
   } else if (m.cmd === "step") {
     const obs = [], rew = [], done = [], infos = [], aux = [], gen = [];
     envs.forEach((e, i) => {
-      if (e.finished) { obs.push(e.lastObs); rew.push(0); done.push(false); infos.push(null); if (G) { aux.push([0, 0, 0, 0]); gen.push(gvec(e)); } return; }   // a finished test-drive stretch waits for the others
+      if (e.finished) { obs.push(e.lastObs); rew.push(0); done.push(false); infos.push(null); if (G) { aux.push([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); gen.push(gvec(e)); } return; }   // a finished test-drive stretch waits for the others
+      const isShow = show && i === 0;
+      if (isShow && !show.centres.length) show.centres.push(e.sim.map.centre || null);
+      // DAgger: ask the teacher what it would do here (not on recorded environments: the teacher must not touch what is replayed)
+      let lab = null;
+      if (dagger && !isShow && !e.rec) {
+        const risky = e.shield ? e.shieldCap() < e.ego.v + 1.5 : false;
+        if (Math.random() < dagger || (risky && Math.random() < 3 * dagger)) lab = teacher.plan(e);   // the teacher is costly: a few percent of decisions, more where it matters
+      }
       const x0 = e.ego.x, y0 = e.ego.y, h0 = e.ego.h, c0 = Math.cos(h0), s0 = Math.sin(h0);
       const r = e.step(m.actions[i]);
       let o = r.obs;
       if (G) {   // the move in the frame the car had before it, and whether this decision ended in contact
         const dx = e.ego.x - x0, dy = e.ego.y - y0; let dh = e.ego.h - h0; while (dh > Math.PI) dh -= 2 * Math.PI; while (dh < -Math.PI) dh += 2 * Math.PI;
-        aux.push([r.done && (r.info.result === "crash" || r.info.result === "hit") ? 1 : 0, Math.round((dx * c0 + dy * s0) * 1e3) / 1e3, Math.round((-dx * s0 + dy * c0) * 1e3) / 1e3, Math.round(dh * 1e4) / 1e4]);
+        const q = (x) => Math.round(x * 1e4) / 1e4;
+        aux.push([r.done && (r.info.result === "crash" || r.info.result === "hit") ? 1 : 0, Math.round((dx * c0 + dy * s0) * 1e3) / 1e3, Math.round((-dx * s0 + dy * c0) * 1e3) / 1e3, q(dh),
+          q(e.lastExec[0]), q(e.lastExec[1]), lab ? q(lab[0]) : 0, lab ? q(lab[1]) : 0, lab ? 1 : 0, q(e.intervened || 0)]);
       }
-      if (show && i === 0) { show.acts.push(m.actions[i]); if (show.acts.length % 10 === 0 && e.ego) show.chk.push([show.acts.length, Math.round(e.ego.x * 100) / 100, Math.round(e.ego.y * 100) / 100]); }
+      if (isShow) { show.acts.push(m.actions[i]); if (show.acts.length % 10 === 0 && e.ego) show.chk.push([show.acts.length, Math.round(e.ego.x * 100) / 100, Math.round(e.ego.y * 100) / 100]); }
       if (e.rec) { e.rec.acts.push(m.actions[i]); if (e.rec.acts.length % 10 === 0 && e.ego) e.rec.chk.push([e.rec.acts.length, Math.round(e.ego.x * 100) / 100, Math.round(e.ego.y * 100) / 100]); }
       if (r.done && e.rec) {   // a test-drive stretch is over: report it for the replay, then wait
         r.info.replay = { seed: e.rec.opts.seed, opts: e.rec.opts, centre: e.rec.centre, npc: !!process.env.LOTUS_NPC, actions: e.rec.acts, check: e.rec.chk };
@@ -69,12 +85,15 @@ rl.on("line", (line) => {
         obs.push(e.lastObs); rew.push(Math.round(r.r * 1e5) / 1e5); done.push(true); infos.push(r.info); if (G) gen.push(gvec(e));
         return;
       }
-      if (r.done) {
+      if (r.done && r.info.result === "stage") {   // v3: the trip goes on in a new window (a truncation for learning, not the end of the trip)
+        r.info.terminal = pack(o); o = e.nextStage();
+        if (isShow) show.centres.push(e.sim.map.centre || null);
+      } else if (r.done) {
         r.info.terminal = pack(o);   // last observation of the episode, for bootstrapping on timeouts
-        if (show && i === 0) {
-          const c = e.sim.map.centre || null;
-          r.info.replay = { seed: show.base + show.k, opts: Object.assign({}, show.opts, e.genome ? { genome: e.genome } : {}), centre: c, npc: !!process.env.LOTUS_NPC, actions: show.acts, check: show.chk };
-          show.k++; show.acts = []; show.chk = []; envs[0] = showEnv(show.k); o = envs[0].reset();
+        if (isShow) {
+          const c = show.centres[0] || e.sim.map.centre || null, opts = Object.assign({}, show.opts, e.genome ? { genome: e.genome } : {}, show.centres.length > 1 ? { stageCentres: show.centres } : {});
+          r.info.replay = { seed: show.base + show.k, opts, centre: c, npc: !!process.env.LOTUS_NPC, actions: show.acts, check: show.chk };
+          show.k++; show.acts = []; show.chk = []; show.centres = []; envs[0] = showEnv(show.k); o = envs[0].reset();
         } else o = e.reset();
       }
       obs.push(pack(o)); rew.push(Math.round(r.r * 1e5) / 1e5); done.push(r.done); infos.push(r.done ? r.info : null);

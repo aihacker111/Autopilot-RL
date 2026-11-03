@@ -76,7 +76,9 @@ def load_agent(ckpt, device):
     finally: sys.argv = argv
     ck = torch.load(ckpt, map_location=device); saved = ck.get("args", {})
     b = argparse.Namespace(**{**vars(a0), **{k: v for k, v in saved.items() if k not in ("device", "out", "workers", "record", "record_n", "record_seed", "eval", "steps", "best", "port")}})
-    b.device = str(device); ag = T.TDMPC2(b, device); steps = ag.load(ckpt)
+    b.device = str(device)
+    if "shield" not in saved: b.shield = 0   # a checkpoint from before the safety shield drives as it was trained
+    ag = T.TDMPC2(b, device); steps = ag.load(ckpt)
     return ag, steps
 
 
@@ -97,7 +99,7 @@ def drive(agent, specs, a, live=None, steps=0):
     """all stretches at once, in lockstep: one batched plan per decision for every car still driving; streamed to the
     live page every 50 decisions"""
     js = [{"seed": s["seed"], "place": s["place"], "genome": s["genome"], "routeM": a.stretch_m, "half": a.half, "maxTime": a.max_time} for s in specs]
-    env = Journey(js, a.workers, a.seed, {"genomeSpace": T.GSPACE, "reward": agent.a.reward})
+    env = Journey(js, a.workers, a.seed, {"genomeSpace": T.GSPACE, "reward": agent.a.reward, "shield": agent.a.shield})
     B = len(js)
     if live:
         for s, b in zip(specs, env.built): live.add(s["id"], s, b, steps)
@@ -139,6 +141,7 @@ def main():
     p.add_argument("--workers", type=int, default=max(1, min(16, (os.cpu_count() or 2) - 1)), help="CPU cores for the simulation (the stretches are split over them)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--out", default=os.path.join(T.HERE, "runs", "drive")); p.add_argument("--port", type=int, default=8765, help="serve the monitor afterwards (0 = do not)")
+    p.add_argument("--shield", type=int, default=-1, help="safety shield: 1 on, 0 off, -1 as the checkpoint was trained")
     p.add_argument("--bind", default="0.0.0.0", help="address of the page: 127.0.0.1 = only through an SSH tunnel (safer on a public server)")
     a = p.parse_args()
     dev = torch.device(a.device)
@@ -153,12 +156,13 @@ def main():
             T.select_best(argparse.Namespace(**{**vars(base), **vars(ns)}), dev)
         if not os.path.exists(ckpt): ckpt = os.path.join(a.run, "final.pt")
     agent, steps = load_agent(ckpt, dev)
+    if a.shield >= 0: agent.a.shield = a.shield
     evolved = []
     af = os.path.join(a.run, "evo", "archive.json")
     if a.evolved and os.path.exists(af): evolved = sorted(json.load(open(af)), key=lambda r: -r["difficulty"])[: a.evolved]
     os.makedirs(a.out, exist_ok=True)
     for f in glob.glob(os.path.join(a.out, "seg_*.json")) + glob.glob(os.path.join(a.out, "journey.json")): os.remove(f)
-    print(json.dumps({"test_drive": os.path.basename(ckpt), "steps": steps, "target_km": a.km, "evolved_scenarios": len(evolved), "workers": a.workers}), flush=True)
+    print(json.dumps({"test_drive": os.path.basename(ckpt), "steps": steps, "target_km": a.km, "evolved_scenarios": len(evolved), "workers": a.workers, "shield": bool(agent.a.shield)}), flush=True)
     srv, url = None, None
     if a.port:   # the page first, so the drive can be watched while it happens
         sys.path.insert(0, os.path.join(T.ROOT, "monitor")); import server as monitor
