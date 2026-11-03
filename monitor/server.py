@@ -133,15 +133,30 @@ WM_RUN = os.environ.get("LOTUS_WM_RUN")   # which world-model run folder to show
 
 def wm_dir(runs):
     if WM_RUN: return WM_RUN if os.path.isabs(WM_RUN) else os.path.join(runs, WM_RUN)
-    ds = [d for d in glob.glob(os.path.join(runs, "tdmpc2*")) if os.path.isdir(d)]
+    ds = [d for pattern in ("tdmpc2*", "lotus_v5*") for d in glob.glob(os.path.join(runs, pattern)) if os.path.isdir(d)]
     if not ds: return os.path.join(runs, "tdmpc2")
     act = lambda d: max([os.path.getmtime(f) for f in (os.path.join(d, "status.json"), os.path.join(d, "policy.json")) if os.path.exists(f)] or [0])
     return max(ds, key=act)
 
 
+def v5_rows(run):
+    path = os.path.join(run, "metrics.jsonl")
+    if not os.path.isfile(path): return []
+    rows = []
+    for line in tail(path, 1000):
+        try: rows.append(json.loads(line))
+        except (ValueError, TypeError): pass
+    return rows
+
+
 def status(runs, host):
     p2, co = os.path.join(runs, "teacher_v2"), os.path.join(runs, "coevolve")
     ev = lambda n: load(os.path.join(runs, "eval", n))
+    wm = wm_dir(runs)
+    wm_result = load(os.path.join(wm, "eval_final.json"))
+    if not wm_result:
+        final = load(os.path.join(wm, "result.json")) or {}
+        if final.get("best_validation"): wm_result = {"summary": final["best_validation"]}
     return {
         "now": time.time(), "runs": os.path.abspath(runs),
         "pipeline": load(os.path.join(runs, "pipeline_status.json"), {}),
@@ -155,7 +170,7 @@ def status(runs, host):
                      "archive": load(os.path.join(co, "archive_live.json")), "result": load(os.path.join(co, "result.json"))},
         "phase4": {"log": load(os.path.join(runs, "phase4", "phase4_log.json"), []), "result": load(os.path.join(runs, "phase4", "result.json"))},
         "npc": {"status": load(os.path.join(runs, "npc", "status.json")), "report": load(os.path.join(runs, "npc", "report.json"))},
-        "wm": {"status": load(os.path.join(wm_dir(runs), "status.json")), "result": load(os.path.join(wm_dir(runs), "eval_final.json")), "run": os.path.basename(wm_dir(runs))},
+        "wm": {"status": load(os.path.join(wm, "status.json")), "result": wm_result, "run": os.path.basename(wm), "log": v5_rows(wm)},
         "checkpoints": checkpoints(runs),
         "log_mtime": os.path.getmtime(os.path.join(runs, "pipeline.log")) if os.path.exists(os.path.join(runs, "pipeline.log")) else None,
     }
@@ -182,7 +197,7 @@ class Sim:
     def signature(self):
         fs = []
         for d in self.dirs():
-            if os.path.basename(d).startswith("tdmpc2"): continue   # swapped in live by the page (/api/policy), no reload needed
+            if os.path.abspath(d) == os.path.abspath(wm_dir(self.runs)): continue   # swapped in live by the page (/api/policy), no reload needed
             for f in glob.glob(os.path.join(d, "*.json")):
                 if re.match(r"(student_r\d+|step_\d+|final|latest|policy)\.json$", os.path.basename(f)): fs.append((f, os.path.getmtime(f)))
         return str(hash(tuple(sorted(fs))))
@@ -214,7 +229,7 @@ def make_handler(runs, host, sim):
             try:
                 if u.path in ("/", "/index.html"): self.send(open(dash, encoding="utf-8").read(), "text/html; charset=utf-8")
                 elif u.path == "/api/status": self.send(json.dumps(status(runs, host)))
-                elif u.path == "/api/log": self.send(json.dumps(tail(os.path.join(runs, "pipeline.log"), min(2000, int(q.get("n", ["200"])[0])))))
+                elif u.path == "/api/log": self.send(json.dumps(tail(os.path.join(wm_dir(runs), "train.log") if os.path.isfile(os.path.join(wm_dir(runs), "train.log")) else os.path.join(runs, "pipeline.log"), min(2000, int(q.get("n", ["200"])[0])))))
                 elif u.path == "/api/ckpt": self.send(json.dumps({"sig": sim.signature()}))
                 elif u.path in ("/sim", "/drive"): self.send(sim.page(), "text/html; charset=utf-8")   # /drive opens on the test drive
                 elif u.path == "/api/drive":   # the test drive of rl/drive_test.py: the journey, or one stretch (?id=)

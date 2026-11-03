@@ -28,6 +28,11 @@ from v5_agent import Agent
 from v5_eval import ROOT, build_manifest, specs, evaluate, rank, aggregate
 from v5_curriculum import Curriculum
 
+# The UI/HTTP helpers live outside the training-source fingerprint. A pinned
+# migration below permits this observability-only change for existing runs.
+sys.path.insert(0, str(ROOT / 'monitor'))
+from v5 import TrainingMonitor, compatible_sources
+
 SCHEMA = 5
 
 
@@ -140,9 +145,11 @@ def train(cfg, resume=None):
         mutable = {'steps', 'device', 'log_every', 'export_every', 'checkpoint_every', 'eval_every', 'out'}
         changed = {k for k, v in cfg.items() if k not in mutable and checkpoint['cfg'].get(k) != v}
         if changed: raise ValueError(f'Resume config changed: {sorted(changed)}')
-        if checkpoint['metadata']['files'] != meta['files']: raise ValueError('Source changed since checkpoint; exact resume refused (start a new experiment)')
+        if not compatible_sources(checkpoint['metadata']['files'], meta['files']): raise ValueError('Source changed since checkpoint; exact resume refused (start a new experiment)')
         for key in ('manifest_hash', 'priors_hash', 'map_hash', 'npc_hash'):
             if checkpoint['metadata'].get(key) != meta[key]: raise ValueError(f'{key} changed on resume')
+    if checkpoint and checkpoint['metadata']['files'] != meta['files']:
+        atomic_json(out / 'resume_monitor_migration.json', dict(previous=checkpoint['metadata']['files'], current=meta['files'], reason='Pinned observability-only monitor integration'))
     if checkpoint and checkpoint['metadata']['versions'] != meta['versions']: raise ValueError('Runtime versions changed; exact resume refused')
     if not checkpoint or not manifest_path.exists():
         atomic_json(manifest_path, manifest); atomic_json(out / 'metadata.json', meta)
@@ -167,6 +174,8 @@ def train(cfg, resume=None):
     try:
         if checkpoint: state = restore_checkpoint(checkpoint, agent, replay, cf_replay, curriculum, env)
         else: state['obs'] = env.reset(); state['genome'] = env.gen.copy()
+        agent.export(out / 'policy.json')  # visible before the first scheduled export
+        atomic_json(out / 'status.json', dict(phase='train', steps=state['steps'], total=cfg['steps'], t=time.time()))
         baseline_step = state['steps']; reports = deque(state['history'], maxlen=200)
         while state['steps'] < cfg['steps']:
             obs, previous, genome = state['obs'], state['previous'], state['genome']
@@ -232,7 +241,7 @@ def train(cfg, resume=None):
                            transitions_per_second=(steps - baseline_step) / max(.001, time.monotonic() - t0), **stats, **report)
                 print(json.dumps(row), flush=True)
                 with (out / 'metrics.jsonl').open('a') as f: f.write(json.dumps(row) + '\n')
-                atomic_json(out / 'status.json', dict(phase='train', total=cfg['steps'], **row))
+                atomic_json(out / 'status.json', dict(phase='train', total=cfg['steps'], t=time.time(), **row))
             if steps - state['last_checkpoint'] >= cfg['checkpoint_every']:
                 state['last_checkpoint'] = steps; state['history'] = list(reports)
                 save_checkpoint(out / 'latest.pt', cfg, meta, agent, replay, cf_replay, curriculum, env, state)
@@ -250,7 +259,8 @@ def train(cfg, resume=None):
         raise
     finally:
         env.close()
-        atomic_json(out / 'status.json', dict(phase=status, steps=state['steps'], total=cfg['steps']))
+        final_status = json.loads((out / 'status.json').read_text()) if (out / 'status.json').exists() else {}
+        atomic_json(out / 'status.json', dict(final_status, phase=status, steps=state['steps'], total=cfg['steps'], t=time.time()))
 
 
 def evaluate_checkpoint(path, split, matrix, episodes=None):
@@ -275,13 +285,19 @@ def main():
     parser.add_argument('--config', default=str(ROOT / 'configs/v5_full.yaml'))
     parser.add_argument('--seed', type=int); parser.add_argument('--resume'); parser.add_argument('--out'); parser.add_argument('--steps', type=int); parser.add_argument('--device')
     parser.add_argument('--evaluate'); parser.add_argument('--split', choices=['validation', 'test'], default='validation')
+    parser.add_argument('--port', type=int, default=8765, help='training monitor port; 0 disables the HTTP server')
+    parser.add_argument('--bind', default='0.0.0.0', help='monitor listen address')
+    parser.add_argument('--keep-monitor', action='store_true', help='keep the monitor after training ends until Ctrl+C')
     parser.add_argument('--matrix', action='store_true'); parser.add_argument('--episodes', type=int)
     args = parser.parse_args()
     if args.evaluate: evaluate_checkpoint(args.evaluate, args.split, args.matrix, args.episodes); return
     cfg = load_config(args.config)
     for key in ('out', 'steps', 'device', 'seed'):
         if getattr(args, key) is not None: cfg[key] = getattr(args, key)
-    print(json.dumps(train(cfg, args.resume)), flush=True)
+    with TrainingMonitor(ROOT / cfg['out'], args.port, args.bind, cfg['generated_maps']) as monitor:
+        try: print(json.dumps(train(cfg, args.resume)), flush=True)
+        finally:
+            if args.keep_monitor: monitor.keep_open()
 
 
 if __name__ == '__main__': main()

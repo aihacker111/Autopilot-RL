@@ -183,6 +183,8 @@ if __name__ == "__main__":
     if a.stages == "v5":
         cmd = [PY, os.path.join(RL, "v5_train.py"), "--config", a.config]
         if a.smoke: cmd = [PY, os.path.join(RL, "v5_train.py"), "--config", os.path.join(ROOT, "configs", "v5_smoke.yaml")]
+        cmd += ["--port", str(a.port), "--bind", a.bind]
+        if not a.exit_when_done: cmd += ["--keep-monitor"]
         sys.exit(subprocess.call(cmd, cwd=ROOT))
     # the city data is not in git (web/hcm is ~110 MB): without it every stage silently falls back to generated maps
     hcm = os.path.join(ROOT, "web", "hcm")

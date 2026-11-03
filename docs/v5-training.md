@@ -166,6 +166,27 @@ baseline; use the same independent v5 evaluation protocol when comparing it.
 
 ## Outputs and monitoring
 
+The v5 training command now starts the monitor automatically and prints dashboard
+and simulator links immediately. For the HCM preset the simulator link is
+`http://127.0.0.1:8765/sim?driver=latest&map=hcm`. The page uses the latest **policy
+prior** snapshot and updates as snapshots are exported; it is a separate live
+simulation, not a stream of the training worker's full-MPPI decisions.
+
+Use `--port 9000` to change the port, `--port 0` to disable HTTP, or
+`--keep-monitor` to keep serving after training finishes. `--bind 127.0.0.1`
+restricts listening to localhost. On a remote server, forward the port:
+
+```bash
+ssh -L 8765:127.0.0.1:8765 user@YOUR_SERVER
+```
+
+The initial prior is exported as soon as the controller is ready, before waiting
+for the first `export_every` milestone. Console output is saved in `train.log`.
+A pinned source-hash migration allows checkpoints from the preceding v5 entry
+point to resume with this observability update; unrelated code changes still fail
+strict validation.
+
+
 `latest.pt`: exact resumable training state. `best.pt`: validation-selected state.
 `policy.json` / `best_policy.json`: recurrent prior only. `metadata.json`,
 `config.yaml`, `splits.json`: provenance. `metrics.jsonl`, `status.json`: progress.
