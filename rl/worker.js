@@ -16,13 +16,18 @@ let envs = [];
 let show = null, pool = null, pPool = 0;
 function showEnv(k) {
   const seed = show.base + k, r = rngFrom(seed * 31 + 5), opts = Object.assign({}, show.opts, { seed });
-  if (pool && pool.length && r() < pPool) opts.genome = pool[Math.floor(r() * pool.length)];   // an evolved scenario, recorded with the episode
+  if (pool && pool.length && r() < pPool) {   // an evolved scenario (weighted when weights are given), recorded with the episode
+    if (poolW && poolW.length === pool.length) { let q = r() * poolW.reduce((a, b) => a + b, 0), k = 0; while (k < pool.length - 1 && q >= poolW[k]) { q -= poolW[k]; k++; } opts.genome = pool[k]; }
+    else opts.genome = pool[Math.floor(r() * pool.length)];
+  }
   return new EgoEnv(opts);
 }
 // world-model extras ("aux"): per decision, contact (any collision), how the car moved in its own frame, the action actually
 // executed (after the safety shield), the teacher's action where it was asked (DAgger), how much the shield cut; and the genome
 let G = null;   // { keys, lo, hi, def } from tdmpc2.py
 let dagger = 0, teacher = null;   // probability of asking the look-ahead teacher for the right action (more often when it is risky)
+let cf = 0, cfLen = 6;            // v4: probability of a counterfactual branch (a riskier action, played out on a copy of the world)
+let poolW = null;                 // v4: weights of the evolved scenarios (how much can be learnt in each)
 const gvec = (e) => { if (!G) return []; const g = e.sim && e.sim.genome; return G.keys.map((k, i) => { const v = g && g[k] != null ? g[k] : G.def[i]; return Math.round(((v - G.lo[i]) / (G.hi[i] - G.lo[i]) * 2 - 1) * 1e3) / 1e3; }); };
 const pack = (a) => Array.from(a, (x) => Math.round(x * 1e4) / 1e4);
 const send = (o) => process.stdout.write(JSON.stringify(o) + "\n");
@@ -32,7 +37,7 @@ rl.on("line", (line) => {
     envs = []; G = m.genomeSpace || null;
     const common = Object.assign({ shaping: m.shaping ?? true, reward: m.reward, defensive: m.defensive }, m.shield ? { shield: true } : {});
     const trip = Object.assign({}, common, m.routeMs ? { routeMs: m.routeMs, routeW: m.routeW, half: m.half } : {});   // training: long routes of random length (v3)
-    dagger = m.dagger || 0;
+    dagger = m.dagger || 0; cf = m.cf || 0; cfLen = m.cfLen || 6;
     if (dagger && !teacher) { Object.assign(global, require(path.join(W, "planner.js"))); teacher = new LookaheadPlanner({ defensive: true }); }
     if (m.specs) for (const sp of m.specs) envs.push(new EgoEnv(Object.assign({ seed: sp.seed, density: sp.density, mapOpts: { preset: sp.preset || (getHcmCity() ? "hcm" : "city") }, reseedEvery: 0 }, common)));   // a fixed evaluation suite (as eval.js)
     else for (let i = 0; i < m.n; i++) envs.push(new EgoEnv(Object.assign({ seed: m.seed * 1000 + i, density: m.density, densityRange: m.densityRange, ramp: m.ramp || 0, pool: m.pool, pPool: m.pPool, reseedEvery: m.reseedEvery }, trip)));
@@ -51,13 +56,13 @@ rl.on("line", (line) => {
     if (m.showcase && !m.specs && envs.length) { show = { base: (m.seed * 1000 + 777) * 1000, k: 0, opts: Object.assign({ densityRange: m.densityRange, reseedEvery: 0 }, trip), acts: [], chk: [], centres: [] }; envs[0] = showEnv(0); }
     send({ obs_dim: ENV.OBS_DIM, act_dim: ENV.ACT_DIM, ...(m.journey ? { journey: envs.map((e) => ({ seed: e.rec.opts.seed, opts: e.rec.opts, centre: e.rec.centre, npc: !!process.env.LOTUS_NPC })) } : {}) });
   } else if (m.cmd === "pool") {   // evolved scenario genomes: mixed into every environment's next map (and the next showcase episode)
-    pool = m.pool; pPool = m.p;
-    for (const e of envs) { e.pool = pool; e.pPool = pPool; }
+    pool = m.pool; pPool = m.p; poolW = m.w || null;
+    for (const e of envs) { e.pool = pool; e.pPool = pPool; e.poolW = poolW; }
     send({ ok: true });
   } else if (m.cmd === "reset") {
     send({ obs: envs.map((e) => pack(e.reset())), ...(G ? { gen: envs.map(gvec) } : {}) });
   } else if (m.cmd === "step") {
-    const obs = [], rew = [], done = [], infos = [], aux = [], gen = [];
+    const obs = [], rew = [], done = [], infos = [], aux = [], gen = [], cfs = [];
     envs.forEach((e, i) => {
       if (e.finished) { obs.push(e.lastObs); rew.push(0); done.push(false); infos.push(null); if (G) { aux.push([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); gen.push(gvec(e)); } return; }   // a finished test-drive stretch waits for the others
       const isShow = show && i === 0;
@@ -67,6 +72,15 @@ rl.on("line", (line) => {
       if (dagger && !isShow && !e.rec) {
         const risky = e.shield ? e.shieldCap() < e.ego.v + 1.5 : false;
         if (Math.random() < dagger || (risky && Math.random() < 3 * dagger)) lab = teacher.plan(e);   // the teacher is costly: a few percent of decisions, more where it matters
+      }
+      // counterfactual: from this same state, a riskier action held for cfLen decisions (faster, or squeezing sideways)
+      if (cf && !isShow && !e.rec) {
+        const risky = e.shield ? e.shieldCap() < e.ego.v + 1.5 : false;
+        if (Math.random() < cf * (risky ? 3 : 1)) {
+          const a = m.actions[i], alt = [Math.min(1, a[0] + 0.3 + 0.7 * Math.random()), Math.random() < 0.4 ? Math.max(-1, Math.min(1, a[1] + (Math.random() < 0.5 ? -1 : 1) * (0.4 + 0.5 * Math.random()))) : a[1]];
+          const q = (x) => Math.round(x * 1e4) / 1e4;
+          cfs.push({ i, steps: e.branch(alt, cfLen).map((t) => [pack(t.obs), q(t.exec[0]), q(t.exec[1]), Math.round(t.r * 1e5) / 1e5, t.done ? 1 : 0, t.term ? 1 : 0, t.contact ? 1 : 0, q(t.move[0]), q(t.move[1]), q(t.move[2])]) });
+        }
       }
       const x0 = e.ego.x, y0 = e.ego.y, h0 = e.ego.h, c0 = Math.cos(h0), s0 = Math.sin(h0);
       const r = e.step(m.actions[i]);
@@ -99,6 +113,6 @@ rl.on("line", (line) => {
       obs.push(pack(o)); rew.push(Math.round(r.r * 1e5) / 1e5); done.push(r.done); infos.push(r.done ? r.info : null);
       if (G) gen.push(gvec(envs[i]));   // the genome of the scenario the *next* observation belongs to
     });
-    send({ obs, rew, done, infos, ...(G ? { aux, gen } : {}) });
+    send({ obs, rew, done, infos, ...(G ? { aux, gen } : {}), ...(cfs.length ? { cf: cfs } : {}) });
   } else if (m.cmd === "close") process.exit(0);
 });

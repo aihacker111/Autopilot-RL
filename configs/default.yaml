@@ -10,7 +10,9 @@ npc:                     # learned road users (rl/npc_train.py): imitation of th
   ppo_steps: 3000        # simulation steps per worker per iteration
   stats_steps: 3000      # for the realism report (rules vs network)
 
-world_model:             # TD-MPC2 v3 (rl/tdmpc2.py): world model with physics and several futures, risk-aware planning, a safety shield, teacher corrections (--stages wm)
+world_model:             # TD-MPC2 v4 (rl/tdmpc2.py): world model with physics and several futures, risk-aware planning, a safety shield, teacher corrections,
+                         # counterfactual "what if" branches, scenario evolution for learnability (--stages wm)
+  out: tdmpc2_v4         # run folder under runs/ (a v3 run in runs/tdmpc2 is left alone)
   steps: 5000000         # 5x v2: a 5M-parameter model and long trips need more data
   latent: 320            # with hidden 512: ~5.2M parameters (v2: 128 / 256, 1.3M)
   hidden: 512
@@ -21,6 +23,8 @@ world_model:             # TD-MPC2 v3 (rl/tdmpc2.py): world model with physics a
   dagger: 0.03           # share of decisions the look-ahead teacher labels (3x more in risky moments); 0 = off
   dagger_coef: 0.5       # weight of cloning those labels in the policy loss
   prio: 0.25             # share of each batch drawn from the seconds before a contact
+  cf: 0.02               # v4: share of decisions that also play out a riskier action on a copy of the world (3x in risky moments)
+  cf_frac: 0.15          # v4: share of world-model batches drawn from those counterfactual branches
   demos: 40000           # drives of the defensive teacher that seed the replay buffer (0 = from scratch)
   envs: 8                # environments per worker: twice v2, so twice as many episodes at once
   samples: 256           # candidate plans per decision
@@ -29,12 +33,15 @@ world_model:             # TD-MPC2 v3 (rl/tdmpc2.py): world model with physics a
   risk: 0.5              # weight of the worst future vs the average (CVaR)
   coll_cost: 8.0         # planning cost of the predicted probability of contact
   gamma: 0.99            # ~20 s of foresight (0.97 was ~7 s: crashing looked cheap)
-  reward: v2             # crash -25, hitting a person -40, being hit -5, defensive driving; v1 = the reward of phases 2-3
+  reward: v2             # crash -25, hitting a person -40, being hit -5, defensive driving; carl = route progress x soft factors, infractions end the trip (CaRL); v1 = phases 2-3
   reseed: 600            # decisions between fresh maps per environment (evolved scenarios enter with new maps)
   evo_every: 50000       # scenario evolution inside the world model: a generation every N steps (0 = off)
   evo_start: 100000      # ... once the model has learned something
   evo_cands: 512         # genomes imagined per generation
-  evo_real: 12           # of which the most promising are checked in the simulation (difficulty + realism)
+  evo_real: 12           # of which the most promising are checked in the simulation (success rate p, realism, teacher solvability)
+  evo_episodes: 4        # episodes per checked scenario: the success rate p and learnability p(1-p)
+  solv_min: 0.25         # v4: the teacher must complete at least this share, else the scenario is unsolvable and dropped
+  learn_min: 0.05        # v4: scenarios less learnable than this (too easy or hopeless now) leave the archive
   pool_p: 0.4            # share of new maps that use an evolved scenario
   eval_n: 96             # episodes per evaluation (twice v2: a steadier choice of the best checkpoint)
   eval_every: 100000

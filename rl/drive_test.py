@@ -159,7 +159,7 @@ def main():
     if a.shield >= 0: agent.a.shield = a.shield
     evolved = []
     af = os.path.join(a.run, "evo", "archive.json")
-    if a.evolved and os.path.exists(af): evolved = sorted(json.load(open(af)), key=lambda r: -r["difficulty"])[: a.evolved]
+    if a.evolved and os.path.exists(af): evolved = sorted(json.load(open(af)), key=lambda r: -r.get("difficulty", 1 - r.get("p", 0.5)))[: a.evolved]
     os.makedirs(a.out, exist_ok=True)
     for f in glob.glob(os.path.join(a.out, "seg_*.json")) + glob.glob(os.path.join(a.out, "journey.json")): os.remove(f)
     print(json.dumps({"test_drive": os.path.basename(ckpt), "steps": steps, "target_km": a.km, "evolved_scenarios": len(evolved), "workers": a.workers, "shield": bool(agent.a.shield)}), flush=True)

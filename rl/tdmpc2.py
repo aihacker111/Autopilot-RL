@@ -113,10 +113,10 @@ class SetEncoder(nn.Module):
 
 class Dynamics(nn.Module):
     """several hypotheses of the next latent and their odds (multiple-choice learning): the futures the world may take"""
-    def __init__(self, latent, hidden, heads, simnorm):
+    def __init__(self, latent, hidden, heads, simnorm, gd=GD):
         super().__init__()
         self.M, self.L = heads, latent
-        self.trunk = nn.Sequential(nn.Linear(latent + ACT + GD, hidden), nn.LayerNorm(hidden), nn.Mish(), nn.Linear(hidden, hidden), nn.LayerNorm(hidden), nn.Mish())
+        self.trunk = nn.Sequential(nn.Linear(latent + ACT + gd, hidden), nn.LayerNorm(hidden), nn.Mish(), nn.Linear(hidden, hidden), nn.LayerNorm(hidden), nn.Mish())
         self.out = nn.Linear(hidden, heads * latent); self.ln = nn.LayerNorm(latent); self.sn = SimNorm(simnorm)
         self.logit = nn.Linear(hidden, heads)
     def forward(self, z, a, g):
@@ -125,15 +125,15 @@ class Dynamics(nn.Module):
 
 
 class WorldModel(nn.Module):
-    def __init__(self, latent=128, hidden=256, num_q=5, bins=101, simnorm=8, dropout=0.01, heads=4):
+    def __init__(self, latent=128, hidden=256, num_q=5, bins=101, simnorm=8, dropout=0.01, heads=4, gd=GD):
         super().__init__()
-        self.L = latent
+        self.L, self.gd = latent, gd   # gd: genes of the scenario genome this model was built for (13 before the HCMC genes)
         self.enc = SetEncoder(latent, hidden=hidden, simnorm=simnorm)
-        self.dyn = Dynamics(latent, hidden, heads, simnorm)
-        self.rew = mlp(latent + ACT + GD, [hidden, hidden], bins)
+        self.dyn = Dynamics(latent, hidden, heads, simnorm, gd)
+        self.rew = mlp(latent + ACT + gd, [hidden, hidden], bins)
         self.pi = mlp(latent, [hidden, hidden], 2 * ACT)
-        self.qs = nn.ModuleList([mlp(latent + ACT + GD, [hidden, hidden], bins, dropout=dropout) for _ in range(num_q)])
-        self.coll = mlp(latent + GD, [hidden], len(COLL_K))
+        self.qs = nn.ModuleList([mlp(latent + ACT + gd, [hidden, hidden], bins, dropout=dropout) for _ in range(num_q)])
+        self.coll = mlp(latent + gd, [hidden], len(COLL_K))
         self.phys = mlp(latent, [hidden], PD)
         self.kin = mlp(latent + ACT, [hidden], 3)
         for q in self.qs: nn.init.zeros_(q[-1].weight); nn.init.zeros_(q[-1].bias)   # start every value at 0
@@ -164,7 +164,11 @@ class WorldModel(nn.Module):
 class TDMPC2:
     def __init__(self, a, device):
         self.a, self.dev = a, device
-        self.m = WorldModel(a.latent, a.hidden, a.num_q, heads=a.heads).to(device)
+        self.build(getattr(a, "gd", GD))
+
+    def build(self, gd):
+        a, device = self.a, self.dev; self.gd = gd
+        self.m = WorldModel(a.latent, a.hidden, a.num_q, heads=a.heads, gd=gd).to(device)
         self.target_qs = [q for q in torch.nn.ModuleList([__import__("copy").deepcopy(q) for q in self.m.qs]).to(device)]
         for q in self.target_qs:
             for p in q.parameters(): p.requires_grad_(False)
@@ -196,7 +200,7 @@ class TDMPC2:
     def plan(self, obs, g, explore=True, record=False):
         """risk-aware MPPI in the latent space, batched over environments: obs (B, OBS), genomes g (B, GD) -> actions (B, 2)"""
         a, B = self.a, obs.shape[0]; H, S, E, P, Fn = a.horizon, a.samples, a.elites, a.pi_trajs, a.futures
-        z0 = self.m.enc(torch.tensor(obs, device=self.dev)); g0 = torch.tensor(g, device=self.dev)
+        z0 = self.m.enc(torch.tensor(obs, device=self.dev)); g0 = torch.tensor(np.asarray(g)[:, :self.gd], device=self.dev)
         # trajectories proposed by the policy prior (in the most likely future)
         pi_act = torch.empty(B, P, H, ACT, device=self.dev); z = z0.unsqueeze(1).expand(B, P, -1); gP = g0.unsqueeze(1).expand(B, P, -1)
         for t in range(H):
@@ -270,7 +274,7 @@ class TDMPC2:
         sampled futures) and how likely is contact, if the traffic followed genome g. gs (C, GD), obs (N, OBS)"""
         z0 = self.m.enc(torch.tensor(obs, device=self.dev)); N = z0.shape[0]; vals, cols = [], []
         for c0 in range(0, len(gs), chunk):
-            g = torch.tensor(gs[c0:c0 + chunk], device=self.dev); C = g.shape[0]
+            g = torch.tensor(np.asarray(gs[c0:c0 + chunk])[:, :self.gd], device=self.dev); C = g.shape[0]
             z = z0.unsqueeze(0).expand(C, N, -1); g = g.unsqueeze(1).expand(C, N, -1)
             G, disc, pmax = torch.zeros(C, N, 1, device=self.dev), 1.0, torch.zeros(C, N, 1, device=self.dev)
             for t in range(horizon):
@@ -283,7 +287,7 @@ class TDMPC2:
 
     def update(self, batch, bc=None, bc_w=0.0):
         a = self.a; o, act, r, term, no, aux, g, clab = batch   # (H, B, ...): obs, action, reward, terminal, next obs, aux (AUXD), genome, contact-within labels
-        H, B = act.shape[0], act.shape[1]
+        H, B = act.shape[0], act.shape[1]; g = g[..., :self.gd]
         act = aux[..., 4:6]   # what was actually executed (after the safety shield): the world is a consequence of that
         with torch.no_grad():
             nz = self.m.enc(no)                                   # latent of every next observation (consistency targets)
@@ -303,7 +307,8 @@ class TDMPC2:
         rl = sum((a.rho ** t) * self.th.ce(self.m.reward(zs[t], act[t], g[t]), r[t]).mean() for t in range(H))
         qs = self.m.Q(zs, act, g)                                 # (num_q, H, B, bins)
         vl = sum((a.rho ** t) * self.th.ce(qs[:, t], td[t].unsqueeze(0).expand(a.num_q, -1, -1)).mean() for t in range(H))
-        cl = sum((a.rho ** t) * F.binary_cross_entropy_with_logits(self.m.collision(zs[t], g[t]), clab[t]) for t in range(H))
+        cm = (clab >= 0).float()   # counterfactual branches may not tell (-1)
+        cl = sum((a.rho ** t) * (F.binary_cross_entropy_with_logits(self.m.collision(zs[t], g[t]), clab[t].clamp(min=0), reduction="none") * cm[t]).sum() / cm[t].sum().clamp(min=1) for t in range(H))
         ksc = torch.tensor(KIN_SCALE, device=self.dev)
         pl_ = sum((a.rho ** t) * F.mse_loss(self.m.physics(zs[t]), o[t][..., PHYS_IDX]) for t in range(H))
         kl = sum((a.rho ** t) * F.mse_loss(self.m.kinematics(zs[t], act[t]), aux[t][..., 1:4] / ksc) for t in range(H))
@@ -332,7 +337,10 @@ class TDMPC2:
     def save(self, path, steps):
         torch.save({"model": self.m.state_dict(), "target": [q.state_dict() for q in self.target_qs], "scale": self.scale, "steps": steps, "args": vars(self.a)}, path)
     def load(self, path):
-        ck = torch.load(path, map_location=self.dev); self.m.load_state_dict(ck["model"])
+        ck = torch.load(path, map_location=self.dev)
+        gd = ck["model"]["dyn.trunk.0.weight"].shape[1] - self.a.latent - ACT
+        if gd != self.gd: self.build(gd)   # a checkpoint from before the HCMC genes (13 genes)
+        self.m.load_state_dict(ck["model"])
         for q, s in zip(self.target_qs, ck["target"]): q.load_state_dict(s)
         self.scale = ck.get("scale", 1.0); return ck.get("steps", 0)
 
@@ -384,6 +392,38 @@ class Buffer:
         """random observations, for scoring genomes in imagination"""
         e = np.random.randint(0, self.n, n); t = np.random.randint(0, max(1, self.len), n)
         return self.o[e, t].astype(np.float32)
+
+
+class CFBuffer:
+    """v4 counterfactual sequences: from a real state, a riskier action played out for K decisions on a copy of the world.
+    After the end of a branch the state is absorbing. Contact-within-k labels are -1 (unknown) where the branch is too
+    short to tell."""
+    def __init__(self, cap, K, device):
+        self.cap, self.K, self.dev, self.n, self.ptr, self.added = cap, K, device, 0, 0, 0
+        self.o = np.zeros((cap, K, OBS), np.float16); self.no = np.zeros((cap, K, OBS), np.float16)
+        self.a = np.zeros((cap, K, ACT), np.float32); self.r = np.zeros((cap, K), np.float32); self.term = np.zeros((cap, K), np.float32)
+        self.aux = np.zeros((cap, K, AUXD), np.float32); self.g = np.zeros((cap, GD), np.float16); self.lab = np.zeros((cap, K, len(COLL_K)), np.float32)
+    def add(self, obs0, g, steps):
+        i, K, L = self.ptr, self.K, len(steps); o = np.asarray(obs0, np.float32); last = o
+        for j in range(K):
+            if j < L:
+                st = steps[j]; no = np.asarray(st[0], np.float32); ex, r, term, c, mv = st[1:3], st[3], st[5], st[6], st[7:10]; last = no
+            else: no, ex, r, term, c, mv = last, (0.0, 0.0), 0.0, 1.0, 0.0, (0.0, 0.0, 0.0)
+            self.o[i, j], self.no[i, j], self.a[i, j], self.r[i, j], self.term[i, j] = o, no, ex, r, term
+            self.aux[i, j] = [c, *mv, *ex, 0.0, 0.0, 0.0, 0.0]; o = no
+        cpos = next((j for j in range(L) if steps[j][6]), None)
+        for j in range(K):
+            for q, k in enumerate(COLL_K):
+                if cpos is not None: lab = 1.0 if j <= cpos and cpos - j < k else 0.0
+                elif L < K: lab = 0.0                             # ended without contact
+                else: lab = 0.0 if k <= K - j else -1.0           # still going: unknown beyond the branch
+                self.lab[i, j, q] = lab
+        self.g[i] = np.asarray(g, np.float32)[:GD]; self.ptr = (self.ptr + 1) % self.cap; self.n = min(self.cap, self.n + 1); self.added += 1
+    def sample(self, B):
+        idx = np.random.randint(0, self.n, B); K = self.K
+        T = lambda x: torch.tensor(np.ascontiguousarray(np.swapaxes(x, 0, 1)), dtype=torch.float32, device=self.dev)
+        g = np.repeat(self.g[idx][:, None], K, 1)
+        return T(self.o[idx]), T(self.a[idx]), T(self.r[idx])[..., None], T(self.term[idx])[..., None], T(self.no[idx]), T(self.aux[idx]), T(g), T(self.lab[idx])
 
 
 def teacher_demos(n, workers, out, seed=5, reward="v2", defensive=1):
@@ -487,7 +527,7 @@ def serve(a, path="/sim?driver=latest"):
     """the training monitor on the run folder, to watch the recorded episodes (/sim, driver Training) or the test drive (/drive)"""
     import sys
     sys.path.insert(0, os.path.join(ROOT, "monitor")); import server as monitor
-    srv, url = monitor.start(os.path.dirname(os.path.abspath(a.out)), a.port)
+    srv, url = monitor.start(os.path.dirname(os.path.abspath(a.out)), a.port, wm=os.path.basename(os.path.abspath(a.out)))
     if not srv: return
     what = "the test drive" if path.startswith("/drive") else "the recorded episodes (driver Training, then pick a scenario in the list)"
     print(f"\nWatch {what}: {url}{path}\nCtrl+C to stop.", flush=True)
@@ -534,48 +574,82 @@ def record_checkpoints(a):
 
 # ---------------------------------------------------------------- evolution inside the world model
 class Evolution:
-    """MAP-Elites over scenario genomes, scored first in the world model's imagination, then checked in the simulation"""
+    """v4: scenario evolution for learnability (PLR / ACCEL; AlignADV 2026), inside the world model.
+    A scenario is worth training on when the current car wins it about half the time: score p(1-p), p = its success rate.
+    Too easy (p near 1) or hopeless (p near 0) scores ~0. A scenario the look-ahead teacher cannot solve either is dropped
+    as unsolvable. MAP-Elites keeps the most learnable realistic scenario per cell (density x behaviour); the training
+    environments draw them with weights by learnability. Candidates are pre-screened in the world model's imagination,
+    which is calibrated against the real checks to predict p."""
     def __init__(self, a, out):
         self.a, self.dir = a, os.path.join(out, "evo"); os.makedirs(self.dir, exist_ok=True)
-        self.rng = random.Random(a.seed * 7 + 99); self.archive = CO.Archive(); self.gen = 0; self.log = []
+        self.rng = random.Random(a.seed * 7 + 99); self.cells = {}; self.hard = []; self.gen = 0; self.log = []; self.pairs = []   # (imagined difficulty, real p)
         pf = a.priors if os.path.isabs(a.priors) else os.path.join(ROOT, a.priors)
         self.priors = json.load(open(pf)) if os.path.exists(pf) else {}
 
+    def p_hat(self, dd):
+        """predicted success rate from the imagined difficulty: a logistic fit to the real checks so far (None before enough)"""
+        if len(self.pairs) < 8: return None
+        x = np.array([q[0] for q in self.pairs]); y = np.clip(np.array([q[1] for q in self.pairs]), 0.02, 0.98); mu, sd = x.mean(), x.std() + 1e-6
+        w, c = 0.0, float(np.log(y.mean() / (1 - y.mean())))
+        for _ in range(300):   # gradient steps of a 1-d logistic regression on (standardised x, y)
+            pr = 1 / (1 + np.exp(-(w * (x - mu) / sd + c))); w -= 0.5 * np.mean((pr - y) * (x - mu) / sd); c -= 0.5 * np.mean(pr - y)
+        return 1 / (1 + np.exp(-(w * (np.asarray(dd) - mu) / sd + c)))
+
     def generation(self, agent, buf, env, steps):
         a, t0 = self.a, time.time(); self.gen += 1
-        el = self.archive.elites()
-        cands = [CO.mutate(self.rng.choice(el)["genome"], self.rng) if el and self.rng.random() < 0.8 else CO.random_genome(self.rng) for _ in range(a.evo_cands)]
-        # 1. imagination: thousands of rollouts in the world model, per genome
-        vals, cols = agent.dream(np.stack([gnorm(g) for g in cands]), buf.states(a.evo_states), a.dream_h)
-        base, _ = agent.dream(G_DEFAULT[None], buf.states(a.evo_states), a.dream_h)
-        dd = (base[0] - vals) + a.coll_cost * cols                       # how much worse than ordinary traffic, in imagination
-        order = np.argsort(-dd)
-        # 2. the most promising of every archive cell, then the best overall, are checked in the simulation
+        el = list(self.cells.values())
+        par = el or self.hard   # nothing learnable yet: edit the solvable-but-too-hard ones (ACCEL), they may become learnable
+        def parent():   # mutate the more learnable ones more often
+            w = np.array([r["learn"] + 0.02 for r in par]); return par[int(np.random.choice(len(par), p=w / w.sum()))]["genome"]
+        cands = [CO.mutate(parent(), self.rng) if par and self.rng.random() < 0.8 else CO.random_genome(self.rng) for _ in range(a.evo_cands)]
+        # 1. imagination: how much worse than ordinary traffic, for thousands of genomes, from real situations
+        st = buf.states(a.evo_states)
+        vals, cols = agent.dream(np.stack([gnorm(g) for g in cands]), st, a.dream_h)
+        base, _ = agent.dream(G_DEFAULT[None], st, a.dream_h)
+        dd = (base[0] - vals) + a.coll_cost * cols
+        ph = self.p_hat(dd)
+        if ph is not None: score = ph * (1 - ph)                                           # predicted learnability
+        else: rk = np.argsort(np.argsort(dd)) / max(1, len(dd) - 1); score = 1 - np.abs(rk - 0.5) * 2   # before calibration: middling difficulty
+        order = np.argsort(-score)
         pick, seen = [], set()
-        for i in order:
+        for i in order:   # the most promising of every cell first, then the best overall
             c = CO.descriptor(cands[i])
             if c not in seen: seen.add(c); pick.append(int(i))
             if len(pick) >= a.evo_real: break
         for i in order:
             if len(pick) >= a.evo_real: break
             if int(i) not in pick: pick.append(int(i))
+        # 2. the real checks: the current car (success rate p, realism) on the new candidates and the archive, the teacher (solvable?) on the new ones
         driver = os.path.join(self.dir, "driver.json"); export_policy(agent, driver, "TD-MPC2 prior", steps)
-        genomes = [cands[i] for i in pick] + [r["genome"] for r in el]   # the archive is re-scored against the current car
-        res = CO.score(CO.evaluate(genomes, driver, a.workers, a.evo_episodes, self.dir, f"g{self.gen}", 700000 + self.gen * 1000), self.priors, a.realism)
-        new, old = res[:len(pick)], res[len(pick):]
-        self.archive = CO.Archive()
-        for r in old + new:
-            if r["difficulty"] >= a.evo_min: self.archive.offer(r)          # scenarios the car has mastered drop out
-        pool = [r["genome"] for r in self.archive.elites()]
-        if pool: env.set_pool(pool, a.pool_p)
-        real = np.array([r["difficulty"] for r in new]); imag = dd[pick]
-        corr = float(np.corrcoef(real, imag)[0, 1]) if len(new) > 2 and real.std() > 1e-6 and imag.std() > 1e-6 else None
-        row = {"gen": self.gen, "steps": steps, "seconds": round(time.time() - t0, 1), "cells": len(self.archive.cells), "qd": round(self.archive.qd(), 3),
-               "feasible": sum(r["feasible"] for r in new), "checked": len(new), "imagined": len(cands), "dream_vs_real": None if corr is None else round(corr, 3),
-               "best": max(new, key=lambda r: r["difficulty"] * r["feasible"])["difficulty"] if new else 0, "pool": len(pool)}
+        seed0 = 700000 + self.gen * 1000; newg = [cands[i] for i in pick]; old = el + self.hard   # the archive, and the solvable ones that were still too hard
+        res = CO.score(CO.evaluate(newg + [r["genome"] for r in old], driver, a.workers, a.evo_episodes, self.dir, f"g{self.gen}", seed0, shield=bool(a.shield)), self.priors, a.realism)
+        teach = CO.evaluate(newg, "planner", a.workers, a.evo_episodes, self.dir, f"g{self.gen}_teacher", seed0) if a.solv_min > 0 else [{"ok": 1.0}] * len(newg)
+        for r, tq in zip(res[:len(newg)], teach): r["teacher_ok"] = tq.get("clean", tq["ok"])
+        for r, o in zip(res[len(newg):], old): r["teacher_ok"] = o["teacher_ok"]   # solvability does not change with the car
+        for r in res: r["p"] = r.get("clean", r["ok"]); r["learn"] = r["p"] * (1 - r["p"]); r["solvable"] = r["teacher_ok"] >= a.solv_min
+        self.pairs += [(float(dd[i]), r["p"]) for i, r in zip(pick, res[:len(newg)])]; self.pairs = self.pairs[-400:]
+        # 3. the archive: per cell, the most learnable feasible and solvable scenario
+        self.cells = {}
+        # solvable, realistic, but hopeless for the car today: kept aside and checked again later (they come back as the car improves)
+        self.hard = sorted([r for r in res if r["feasible"] and r["solvable"] and r["learn"] < a.learn_min and r["p"] < 0.5], key=lambda r: -r["teacher_ok"])[:a.evo_real]
+        for r in res:
+            if not (r["feasible"] and r["solvable"]) or r["learn"] < a.learn_min: continue
+            k = f"{r['cell'][0]},{r['cell'][1]}"
+            if k not in self.cells or r["learn"] > self.cells[k]["learn"]: self.cells[k] = r
+        el = list(self.cells.values())
+        if el: env.set_pool([r["genome"] for r in el], a.pool_p, [r["learn"] + 0.02 for r in el])   # PLR: drawn by learnability
+        new = res[:len(newg)]
+        corr = None
+        if ph is not None and len(new) > 2:
+            pr, pt = ph[pick], np.array([r["p"] for r in new])
+            if pr.std() > 1e-6 and pt.std() > 1e-6: corr = round(float(np.corrcoef(pr, pt)[0, 1]), 3)
+        row = {"gen": self.gen, "steps": steps, "seconds": round(time.time() - t0, 1), "cells": len(el), "too_hard": len(self.hard), "imagined": len(cands), "checked": len(new),
+               "unsolvable": sum(not r["solvable"] for r in new), "unrealistic": sum(not r["feasible"] for r in new),
+               "mean_learnability": round(float(np.mean([r["learn"] for r in el])), 3) if el else 0, "mean_p": round(float(np.mean([r["p"] for r in el])), 3) if el else None,
+               "dream_vs_real": corr, "calibrated": ph is not None}
         self.log.append(row); print(json.dumps({"evo": row}), flush=True)
         json.dump(self.log, open(os.path.join(self.dir, "log.json"), "w"), indent=1)
-        json.dump([{k: r[k] for k in ("genome", "cell", "difficulty", "realism", "crash", "ok")} for r in self.archive.elites()], open(os.path.join(self.dir, "archive.json"), "w"), indent=1)
+        json.dump([{k: r[k] for k in ("genome", "cell", "p", "learn", "teacher_ok", "realism", "crash", "ok", "difficulty")} for r in el], open(os.path.join(self.dir, "archive.json"), "w"), indent=1)
         return row
 
 
@@ -584,11 +658,12 @@ def train(a):
     torch.manual_seed(a.seed); np.random.seed(a.seed); random.seed(a.seed)
     dev = torch.device(a.device); os.makedirs(a.out, exist_ok=True)
     agent = TDMPC2(a, dev)
-    extra = {"genomeSpace": GSPACE, "reward": a.reward, "reseedEvery": a.reseed, "shield": a.shield, "dagger": a.dagger}
+    extra = {"genomeSpace": GSPACE, "reward": a.reward, "reseedEvery": a.reseed, "shield": a.shield, "dagger": a.dagger, "cf": a.cf, "cfLen": a.horizon}
     if a.routes: extra.update(routeMs=[int(x) for x in str(a.routes).split(",")], routeW=[float(x) for x in str(a.route_w).split(",")] if a.route_w else None, half=a.half)
     env = VecEnv(a.workers, a.envs, a.seed, density_range=[0.4, 1.1], extra=extra, extra0={"showcase": 1} if a.replays else None)
     n_ep, imag = 0, []
     N = env.n; buf = Buffer(N, max(1000, a.buffer // N), dev)
+    cfbuf = CFBuffer(a.cf_buffer, a.horizon, dev) if a.cf > 0 else None
     evo = Evolution(a, a.out) if a.evo_every else None
     demo = None
     if a.demos > 0:
@@ -625,12 +700,16 @@ def train(a):
             if inf:
                 nxt[i] = np.array(inf.get("terminal", nobs[i]), np.float32)
                 if inf.get("result") != "stage": hist.append(inf)   # a trip ends with its result; a new window is not an end
+        if cfbuf is not None:
+            for c in getattr(env, "cf", []): cfbuf.add(obs[c["i"]], gcur[c["i"]], c["steps"])
         buf.add(obs, act, rew, done, term, nxt, env.aux, gcur); obs = nobs; gcur = env.gen; steps += N
         if any(done): agent.prev_mean = None if all(done) else agent.prev_mean
         if steps >= a.seed_steps or demo is not None:
             for _ in range(max(1, int(N * a.utd))):
                 H1 = a.horizon
-                if dbuf is not None and random.random() < a.demo_frac * max(0.2, 1 - steps / max(1, a.steps)):
+                if cfbuf is not None and cfbuf.n > 32 and random.random() < a.cf_frac:   # what riskier actions would have led to
+                    batch = cfbuf.sample(a.batch)
+                elif dbuf is not None and random.random() < a.demo_frac * max(0.2, 1 - steps / max(1, a.steps)):
                     batch = dbuf.sample(a.batch, H1)
                 else: batch = buf.sample(a.batch, H1, a.prio) if buf.len > H1 + 2 else dbuf.sample(a.batch, H1)
                 if batch[0].shape[1] < 8: continue
@@ -645,7 +724,7 @@ def train(a):
             km = sum(e.get("dist", 0) for e in hist) / 1000; ncr = sum(e["result"] == "crash" for e in hist)
             row = {"steps": steps, "minutes": round((time.time() - t0) / 60, 1), "ok": round(m("ok"), 3), "crash": round(m("crash"), 3), "hit": round(m("hit"), 3), "timeout": round(m("timeout"), 3), "red": round(m("red"), 3),
                    "crash_per_100km": round(ncr / max(1e-6, km) * 100, 1), "shield": round(shield_n / max(1, dec_n), 4), "labels": round(label_n / max(1, dec_n), 4),
-                   "updates": upd, **{k: round(v, 4) for k, v in stats.items()}, **({"evo_cells": len(evo.archive.cells)} if evo else {})}
+                   "updates": upd, **{k: round(v, 4) for k, v in stats.items()}, **({"counterfactuals": cfbuf.added} if cfbuf is not None else {}), **({"evo_cells": len(evo.cells)} if evo else {})}
             shield_n = label_n = dec_n = 0
             log.append(row); print(json.dumps(row), flush=True); json.dump(log, open(os.path.join(a.out, "log.json"), "w"), indent=1)
             note(a.out, phase="train", total=a.steps, **row)
@@ -670,7 +749,7 @@ def parse():
     p.add_argument("--replays", type=int, default=40, help="training episodes kept for the replay on the monitor page (0 = none)")
     p.add_argument("--export-every", type=int, default=2000, help="write policy.json for the live simulator page this often (0 = only at evaluations)")
     p.add_argument("--envs", type=int, default=4); p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--reward", default="v2", help="v2: heavier crashes (people most), being hit, defensive driving; v1: the reward of phases 2-3")
+    p.add_argument("--reward", default="v2", help="v2: heavier crashes (people most), being hit, defensive driving; carl: route completion x soft penalties, infractions end the trip (CaRL); v1: the reward of phases 2-3")
     p.add_argument("--defensive", type=int, default=1, help="demonstrations by the defensive teacher")
     p.add_argument("--reseed", type=int, default=600, help="decisions between fresh maps per environment (evolved scenarios enter with new maps)")
     p.add_argument("--shield", type=int, default=1, help="safety shield on the speed command (red lights, the vehicle ahead, people entering the path)")
@@ -679,6 +758,8 @@ def parse():
     p.add_argument("--dagger", type=float, default=0.03, help="share of decisions the look-ahead teacher labels (3x more in risky moments); 0 = off")
     p.add_argument("--dagger-coef", type=float, default=0.5, help="weight of cloning those labels in the policy loss")
     p.add_argument("--prio", type=float, default=0.25, help="share of each batch drawn from the seconds before a contact")
+    p.add_argument("--cf", type=float, default=0.02, help="share of decisions with a counterfactual branch (a riskier action played out on a copy of the world; 3x in risky moments)")
+    p.add_argument("--cf-frac", type=float, default=0.15, help="share of updates drawn from the counterfactual branches"); p.add_argument("--cf-buffer", type=int, default=100000)
     p.add_argument("--demos", type=int, default=40000, help="teacher decisions to start the buffer with (0 = learn from scratch)")
     p.add_argument("--demo-frac", type=float, default=0.5); p.add_argument("--bc", type=float, default=1.0, help="weight of cloning the teacher in the policy loss (fades out)")
     p.add_argument("--bc-steps", type=int, default=300_000)
@@ -686,6 +767,7 @@ def parse():
     p.add_argument("--utd", type=float, default=0.5, help="gradient updates per environment step")
     p.add_argument("--latent", type=int, default=320); p.add_argument("--hidden", type=int, default=512); p.add_argument("--num-q", type=int, default=5)   # ~5.2M parameters
     p.add_argument("--heads", type=int, default=4, help="hypotheses of the dynamics (different futures)")
+    p.add_argument("--gd", type=int, default=GD, help=argparse.SUPPRESS)
     p.add_argument("--horizon", type=int, default=6, help="planning horizon in decisions of 0.2 s"); p.add_argument("--iters", type=int, default=5); p.add_argument("--samples", type=int, default=256)
     p.add_argument("--futures", type=int, default=3, help="sampled futures per candidate plan"); p.add_argument("--risk", type=float, default=0.5, help="weight of the worst futures vs the mean")
     p.add_argument("--cvar", type=float, default=0.34, help="share of futures that count as the worst"); p.add_argument("--coll-cost", type=float, default=8.0, help="planning cost of predicted contact")
@@ -700,10 +782,11 @@ def parse():
     # evolution inside the world model
     p.add_argument("--evo-every", type=int, default=50_000, help="steps between generations of scenario evolution (0 = off)"); p.add_argument("--evo-start", type=int, default=100_000)
     p.add_argument("--evo-cands", type=int, default=512, help="genomes imagined per generation"); p.add_argument("--evo-states", type=int, default=256, help="real situations each genome is imagined from")
-    p.add_argument("--evo-real", type=int, default=12, help="genomes checked in the simulation per generation"); p.add_argument("--evo-episodes", type=int, default=2)
-    p.add_argument("--evo-min", type=float, default=0.15, help="scenarios easier than this for the current car leave the archive")
+    p.add_argument("--evo-real", type=int, default=12, help="genomes checked in the simulation per generation"); p.add_argument("--evo-episodes", type=int, default=4, help="episodes per genome in the real checks (the success rate p)")
     p.add_argument("--dream-h", type=int, default=10, help="imagined decisions per genome rollout"); p.add_argument("--pool-p", type=float, default=0.4, help="share of new maps that use an evolved scenario")
     p.add_argument("--realism", type=float, default=0.5); p.add_argument("--priors", default="calib/priors_vn.json")
+    p.add_argument("--solv-min", type=float, default=0.25, help="a scenario the teacher completes less often than this is unsolvable and dropped (0 = no check)")
+    p.add_argument("--learn-min", type=float, default=0.05, help="scenarios less learnable than this (p(1-p)) leave the archive")
     p.add_argument("--log-every", type=int, default=5000); p.add_argument("--eval-every", type=int, default=100_000); p.add_argument("--eval-n", type=int, default=48)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--out", default=os.path.join(HERE, "runs", "tdmpc2")); p.add_argument("--eval", default=None, help="evaluate a checkpoint with planning")

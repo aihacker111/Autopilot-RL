@@ -24,17 +24,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SPACE = {"density": [0.3, 1.25], "motoShare": [0.6, 0.95], "aggrMu": [0.1, 0.95], "aggrSd": [0.05, 0.4], "complyMu": [0.05, 0.95],
          "patienceMu": [0.05, 0.95], "speedMu": [0.1, 0.95], "pWrong": [0, 0.25], "pCutIn": [0, 0.6], "pEarlyLeft": [0, 0.9], "pBrake": [0, 0.08],
-         "pedRate": [0.3, 2.0], "pJaywalk": [0, 0.6]}
+         "pedRate": [0.3, 2.0], "pJaywalk": [0, 0.6], "pDelivery": [0, 0.02]}   # pDelivery: HCMC delivery riders stopping at the curb
 DEFAULT = {"density": 0.8, "motoShare": 0.835, "aggrMu": 0.5, "aggrSd": 0.29, "complyMu": 0.5, "patienceMu": 0.5, "speedMu": 0.5,
-           "pWrong": 0, "pCutIn": 0, "pEarlyLeft": 0, "pBrake": 0, "pedRate": 1.0, "pJaywalk": 0.15}
-BEHAVIOURS = ["none", "wrong-way", "cut-in", "early-left", "sudden-brake", "aggressive", "jaywalk"]
+           "pWrong": 0, "pCutIn": 0, "pEarlyLeft": 0, "pBrake": 0, "pedRate": 1.0, "pJaywalk": 0.15, "pDelivery": 0}
+BEHAVIOURS = ["none", "wrong-way", "cut-in", "early-left", "sudden-brake", "aggressive", "jaywalk", "delivery-stop"]
 DENS_BINS = 5
 PROGRESS = []   # MAP-Elites batches, for the training monitor
 
 
 def random_genome(rng):
     g = {k: rng.uniform(*r) for k, r in SPACE.items()}
-    for k in ("pWrong", "pCutIn", "pEarlyLeft", "pBrake", "pJaywalk"):   # most scenarios use only some behaviours
+    for k in ("pWrong", "pCutIn", "pEarlyLeft", "pBrake", "pJaywalk", "pDelivery"):   # most scenarios use only some behaviours
         if rng.random() < 0.5: g[k] = 0.0
     return g
 
@@ -51,7 +51,7 @@ def descriptor(g):
     d = min(DENS_BINS - 1, int((g["density"] - SPACE["density"][0]) / (SPACE["density"][1] - SPACE["density"][0]) * DENS_BINS))
     emph = {"wrong-way": g["pWrong"] / 0.25, "cut-in": g["pCutIn"] / 0.6, "early-left": g["pEarlyLeft"] / 0.9, "sudden-brake": g["pBrake"] / 0.08,
             "aggressive": max(0.0, (g["aggrMu"] - 0.5) / 0.45 + (0.5 - g["complyMu"]) / 0.45) / 2,
-            "jaywalk": max(0.0, g.get("pJaywalk", 0) / 0.6 * min(1.0, g.get("pedRate", 1) / 1.2))}
+            "jaywalk": max(0.0, g.get("pJaywalk", 0) / 0.6 * min(1.0, g.get("pedRate", 1) / 1.2)), "delivery-stop": g.get("pDelivery", 0) / 0.02}
     b, v = max(emph.items(), key=lambda kv: kv[1])
     return d, (BEHAVIOURS.index(b) if v >= 0.25 else 0)
 
@@ -67,7 +67,7 @@ def realism(stats, priors):
     return score, why
 
 
-def evaluate(genomes, driver, workers, episodes, out_dir, tag, seed0):
+def evaluate(genomes, driver, workers, episodes, out_dir, tag, seed0, shield=False):
     os.makedirs(os.path.join(out_dir, "tmp"), exist_ok=True)
     items = [{"id": i, "seed": seed0 + i, "genome": g} for i, g in enumerate(genomes)]
     shards = [items[w::workers] for w in range(workers)]
@@ -76,7 +76,7 @@ def evaluate(genomes, driver, workers, episodes, out_dir, tag, seed0):
         if not sh: continue
         fi, fo = os.path.join(out_dir, "tmp", f"{tag}_in{w}.json"), os.path.join(out_dir, "tmp", f"{tag}_out{w}.json")
         json.dump(sh, open(fi, "w"))
-        procs.append((subprocess.Popen(["node", os.path.join(HERE, "evolve_eval.js"), "--in", fi, "--out", fo, "--driver", driver, "--episodes", str(episodes)], stdout=subprocess.DEVNULL), fo))
+        procs.append((subprocess.Popen(["node", os.path.join(HERE, "evolve_eval.js"), "--in", fi, "--out", fo, "--driver", driver, "--episodes", str(episodes)] + (["--shield", "1"] if shield else []), stdout=subprocess.DEVNULL), fo))
     res = []
     for p, fo in procs: p.wait(); res += json.load(open(fo))
     res.sort(key=lambda r: r["id"])

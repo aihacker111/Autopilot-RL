@@ -57,16 +57,18 @@ class VecEnv:
         k = 0
         for w in self.ws:
             w.send({"cmd": "step", "actions": actions[k:k + w.n].tolist()}); k += w.n
-        obs, rew, done, infos, aux, gen = [], [], [], [], [], []
+        obs, rew, done, infos, aux, gen, cf, base = [], [], [], [], [], [], [], 0
         for w in self.ws:   # workers run in parallel; we only collect here
             r = w.recv(); obs += r["obs"]; rew += r["rew"]; done += r["done"]; infos += r["infos"]; aux += r.get("aux", []); gen += r.get("gen", [])
+            cf += [dict(c, i=c["i"] + base) for c in r.get("cf", [])]; base += w.n   # counterfactual branches (tdmpc2.py v4), by global env index
+        self.cf = cf
         self.aux = np.array(aux, np.float32) if aux else None; self.gen = np.array(gen, np.float32) if gen else None   # world model extras (tdmpc2.py)
         return np.array(obs, np.float32), np.array(rew, np.float32), np.array(done, bool), infos
 
-    def set_pool(self, pool, p):
-        """evolved scenario genomes, mixed into the next map of every environment"""
-        for w in self.ws: w.send({"cmd": "pool", "pool": pool, "p": p})
-        for w in self.ws: w.recv()
+    def set_pool(self, pool, p, w=None):
+        """evolved scenario genomes (optionally weighted), mixed into the next map of every environment"""
+        for wk in self.ws: wk.send({"cmd": "pool", "pool": pool, "p": p, **({"w": list(map(float, w))} if w is not None else {})})
+        for wk in self.ws: wk.recv()
 
     def close(self):
         for w in self.ws: w.close()

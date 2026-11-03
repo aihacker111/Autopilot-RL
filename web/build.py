@@ -12,7 +12,7 @@ import json, os, sys, glob, re
 HERE = os.path.dirname(os.path.abspath(__file__))
 rd = lambda p: open(os.path.join(HERE, p), encoding="utf-8").read()
 num = lambda p, pat: int(re.findall(pat, p)[0])
-DEFAULT_RUNS = [os.path.join(HERE, '..', 'rl', 'runs', d) for d in ('teacher_v2', 'finetune_v2', 'tdmpc2')]
+DEFAULT_RUNS = [os.path.join(HERE, '..', 'rl', 'runs', d) for d in ('teacher_v2', 'finetune_v2', 'tdmpc2', 'tdmpc2_v4')]
 NPC_RUN = os.path.join(HERE, '..', 'rl', 'runs', 'npc', 'npc.json')
 
 

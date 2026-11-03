@@ -60,6 +60,7 @@ class Vehicle {
     this.cutIn = !!(G && type === "moto" && r() < G.pCutIn);                      // cuts in front of a car, then brakes
     this.earlyLeft = !!(G && two && path.kind === "left" && r() < G.pEarlyLeft);   // cuts the corner on a left turn
     this.brakeRate = G && two ? G.pBrake * (0.5 + this.aggr) : 0;                 // sudden stops per second while moving
+    this.deliverRate = G && type === "moto" ? (G.pDelivery || 0) : 0;            // HCMC: delivery riders / xe om pulling over to the curb and stopping
     this.vDes = T.vDes * this.speedPref;
     this.margin = 0.5 - 0.32 * this.aggr; this.minGap = (two ? 0.9 : 1.6) - 0.6 * this.aggr; this.headway = 0.85 - 0.45 * this.aggr;
     this.prio = r(); this.wait = 0; this.honk = 0; this.braking = false; this.redRun = null; this.phaseSeen = -1; this.committed = false;
@@ -571,6 +572,10 @@ class Sim {
     if (v.wrongWay && v.legs === 1 && v.s < p.sStop - 3) vT *= 0.6;
     if (v.brakeRate && v.v > 3 && !(v.brakeUntil > this.t) && this.rand() < v.brakeRate * dt) { v.brakeUntil = this.t + 0.7; this.stats.suddenBrakes = (this.stats.suddenBrakes || 0) + 1; }
     if (v.brakeUntil > this.t || (v.cutBrakeAt && this.t > v.cutBrakeAt && this.t < v.cutBrakeAt + 1.0)) vT = 0;
+    if (v.deliverRate && v.v > 2 && !(v.deliverUntil > this.t) && (v.s < p.sStop - 20 || v.s > p.sOut + 10) && this.rand() < v.deliverRate * dt) {
+      v.deliverUntil = this.t + 4 + 11 * this.rand(); this.stats.deliveryStops = (this.stats.deliveryStops || 0) + 1;   // a stop of 4-15 s at the curb, with little warning
+    }
+    if (v.deliverUntil > this.t) { vT = 0; v.dTarget = clampN(hi - v.w2 - 0.1, lo, hi); }
     vT = Math.min(vT, Math.sqrt(Math.max(0, 2 * brake * 0.7 * (freeNow - gap))));
     if (impatient && freeNow > 0.4) vT = Math.max(vT, 0.8);
     if (stopS < Infinity) vT = Math.min(vT, Math.sqrt(Math.max(0, 2 * brake * 0.7 * (stopS - v.s - v.l2 - 0.3))));
@@ -709,7 +714,8 @@ const GENOME_SPACE = {
   density: [0.3, 1.25], motoShare: [0.6, 0.95],
   aggrMu: [0.1, 0.95], aggrSd: [0.05, 0.4], complyMu: [0.05, 0.95], patienceMu: [0.05, 0.95], speedMu: [0.1, 0.95],
   pWrong: [0, 0.25], pCutIn: [0, 0.6], pEarlyLeft: [0, 0.9], pBrake: [0, 0.08], pedRate: [0.3, 2.0], pJaywalk: [0, 0.6],
+  pDelivery: [0, 0.02],
 };
-const DEFAULT_GENOME = { density: 0.8, motoShare: 0.835, aggrMu: 0.5, aggrSd: 0.29, complyMu: 0.5, patienceMu: 0.5, speedMu: 0.5, pWrong: 0, pCutIn: 0, pEarlyLeft: 0, pBrake: 0, pedRate: 1, pJaywalk: 0.15 };
+const DEFAULT_GENOME = { density: 0.8, motoShare: 0.835, aggrMu: 0.5, aggrSd: 0.29, complyMu: 0.5, patienceMu: 0.5, speedMu: 0.5, pWrong: 0, pCutIn: 0, pEarlyLeft: 0, pBrake: 0, pedRate: 1, pJaywalk: 0.15, pDelivery: 0 };
 
 if (typeof module !== "undefined") module.exports = { Sim, Vehicle, Agent, TYPES, DT, MIX, MIXES, GENOME_SPACE, DEFAULT_GENOME, linkPoint, railPoint, isTwo };

@@ -1,5 +1,5 @@
 // Phase 3: evaluate scenario genomes against one driver.
-//   node evolve_eval.js --in batch.json --out result.json --driver policy.json|idm|planner --episodes 4
+//   node evolve_eval.js --in batch.json --out result.json --driver policy.json|idm|planner --episodes 4 [--shield 1]
 // For each genome: how hard the scenario is for the driver, and the behaviour statistics the realism filter needs.
 const fs = require("fs");
 const { args } = require("./common.js");
@@ -17,7 +17,7 @@ for (const item of batch) {
     // the real city when its data is present (the same busy places for every genome), else the generated maps
     const seed = (item.seed || 1) * 1000 + k, city = getHcmCity(), preset = city ? "hcm" : PRESETS[(seed + k) % PRESETS.length];
     const mapOpts = city ? { preset, centre: benchCentre(city, seed + k) } : { preset };
-    const env = new EgoEnv({ seed, mapOpts, reseedEvery: 0, genome: g, density: g.density });
+    const env = new EgoEnv(Object.assign({ seed, mapOpts, reseedEvery: 0, genome: g, density: g.density }, +args.shield ? { shield: true } : {}));   // --shield 1: as the world-model car drives
     let obs = env.reset(), done = false, info;
     const st0 = { ...env.sim.stats }, t0 = env.sim.t;
     let vehSum = 0, twoSum = 0, n = 0;
@@ -33,7 +33,7 @@ for (const item of batch) {
   }
   const m = (k) => eps.filter((e) => e.result === k).length / eps.length;
   const difficulty = eps.reduce((s, e) => s + (e.result === "crash" ? 1 : 0) + (e.red ? 0.5 : 0) + (e.result === "timeout" ? 0.25 : 0) + 0.15 * Math.max(0, Math.min(1, 1 - e.minGap)), 0) / eps.length;
-  out.push({ id: item.id, genome: g, difficulty, crash: m("crash"), hit: m("hit"), ok: m("ok"), timeout: m("timeout"), red: eps.filter((e) => e.red).length / eps.length,
+  out.push({ id: item.id, genome: g, difficulty, crash: m("crash"), hit: m("hit"), ok: m("ok"), clean: eps.filter((e) => e.result === "ok" && !e.red).length / eps.length, timeout: m("timeout"), red: eps.filter((e) => e.red).length / eps.length,
     stats: { instantStopsPerVehMin: acc.instantStops / Math.max(1e-6, acc.vehMin), cutInsPerVehMin: acc.cutIns / Math.max(1e-6, acc.vehMin), suddenBrakesPerTwoMin: acc.suddenBrakes / Math.max(1e-6, acc.twoMin),
       npcCollisionsPerMin: acc.npcColl / Math.max(1e-6, acc.minutes), wrongWayShare: acc.wrongSteps / Math.max(1, acc.twoSteps), hitRate: m("hit") } });
 }

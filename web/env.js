@@ -62,6 +62,7 @@ class EgoEnv {
     this.terminalRed = opts.terminalRed ?? true;
     this.occlusion = opts.occlusion ?? true;           // the car only observes what it can see
     this.rewardV2 = opts.reward === "v2";              // the world-model driver: heavier crashes (people most), defensive driving
+    this.rewardCarl = opts.reward === "carl";          // CaRL (Jaeger et al. 2025): route completion x soft penalty factors; infractions end the trip
     this.decisions = 0; this.nextReseed = this.reseedEvery; this.episodes = 0;
     this.sim = opts.sim || null; this.ego = null;
     this.genome = opts.genome || null;
@@ -93,7 +94,10 @@ class EgoEnv {
     const ms = this.mapSeed ?? Math.floor(this.rand() * 1e9);
     // Phase 3: sometimes drive among an evolved population instead of the default one
     let genome = this.genome || null;
-    if (!genome && this.pool && this.pool.length && this.rand() < this.pPool) genome = this.pool[Math.floor(this.rand() * this.pool.length)];
+    if (!genome && this.pool && this.pool.length && this.rand() < this.pPool) {   // weighted by how much can be learnt there (PLR), when given
+      if (this.poolW && this.poolW.length === this.pool.length) { let q = this.rand() * this.poolW.reduce((a, b) => a + b, 0), k = 0; while (k < this.pool.length - 1 && q >= this.poolW[k]) { q -= this.poolW[k]; k++; } genome = this.pool[k]; }
+      else genome = this.pool[Math.floor(this.rand() * this.pool.length)];
+    }
     const extra = preset !== "hcm" ? {} : Object.assign(this.half ? { half: this.half } : {}, this.stageCentres && this.stageCentres[this.stage] ? { centre: this.stageCentres[this.stage] } : {});
     this.sim = new Sim(cityMap(ms, Object.assign({}, this.mapOpts || {}, { preset }, extra)), Math.floor(this.rand() * 1e9), d, { warmup: 350, genome });
     this.starts = null;
@@ -196,7 +200,7 @@ class EgoEnv {
     const leg0 = e.legs, p0 = e.path, light0 = p0.signal ? sim.light(p0.junc, p0.from) : null, front0 = e.s + e.l2;
     for (let k = 0; k < ENV.REPEAT; k++) { sim.step(); crash = this.collision(); if (crash) break; }
     // progress along the route
-    const prog = this.progress(); r += (prog - this.lastProg) * 0.1; this.lastProg = prog;
+    const prog = this.progress(), progBefore = this.lastProg; r += (prog - this.lastProg) * 0.1; this.lastProg = prog;
     if (this.target && !this.noExtend && this.lastLeg() && this.routeLen - prog < 250 && this.doneDist + this.routeLen < this.target - 50) this.extendRoute();
     // red light or closed barrier: the front bumper crosses the stop line
     let ranRed = false;
@@ -237,6 +241,11 @@ class EgoEnv {
       else { r += 5; done = true; this.result = "ok"; }
     }
     else if (sim.t - this.t0 > this.timeout) { r -= 2; done = true; this.result = "timeout"; }
+    if (this.rewardCarl) {   // 1 per 100 m of route, scaled down by soft penalties; a crash, a red light or being hit ends the trip (the lost rest is the penalty)
+      let f = 1;
+      if (minGap < 0.6) f *= 0.8; if (e.v > lp.VMAX[li] + 1.5) f *= 0.8; if (this.intervened) f *= 0.9; if (warn > 0.5) f *= 0.9;
+      r = Math.max(0, prog - progBefore) / 100 * f;
+    }
     this.ep.ret += r; this.ep.steps++; this.decisions++;
     const info = done ? { result: this.result, ret: this.ep.ret, time: this.doneTime + sim.t - this.t0, red: this.ep.red, minGap: this.ep.minGap, legs: e.route.length, dist: this.doneDist + prog, routeLen: this.target || this.routeLen,
       stages: this.stage + 1, preset: sim.map.preset, kind: sim.map.nodes[e.route[0].j].kind, with: crash ? crash.u.type : null } : null;
@@ -267,6 +276,23 @@ class EgoEnv {
       cap = Math.min(cap, Math.sqrt(vAlong * vAlong + 2 * B * Math.max(0, gap - S0)));
     }
     return cap;
+  }
+  /* v4 counterfactual: what would have happened with another action, held for k decisions, on a copy of the world around
+     the car, with no shield (the point is to see the consequence, e.g. squeezing into that gap). The real environment is
+     not touched. Each transition: observation after it, executed action, reward, done, terminal, contact, move (dx, dy, dh). */
+  branch(act, k, radius = 45) {
+    const e = this.ego, c = this.sim.cloneLocal(e.x, e.y, radius), b = Object.assign(Object.create(EgoEnv.prototype), this);
+    b.sim = c; b.ego = c.vehicles.find((v) => v.ego); b.shield = false; b.noExtend = true;
+    b.ep = Object.assign({}, this.ep); b.redLegs = new Set(this.redLegs); b.prevAct = this.prevAct.slice();
+    const out = [];
+    for (let i = 0; i < k; i++) {
+      const x0 = b.ego.x, y0 = b.ego.y, h0 = b.ego.h, c0 = Math.cos(h0), s0 = Math.sin(h0);
+      const r = b.step(act), dx = b.ego.x - x0, dy = b.ego.y - y0; let dh = b.ego.h - h0; while (dh > Math.PI) dh -= 2 * Math.PI; while (dh < -Math.PI) dh += 2 * Math.PI;
+      const res = r.done ? r.info.result : null;
+      out.push({ obs: r.obs, exec: b.lastExec.slice(), r: r.r, done: r.done, term: r.done && res !== "timeout" && res !== "stage", contact: res === "crash" || res === "hit", move: [dx * c0 + dy * s0, -dx * s0 + dy * c0, dh] });
+      if (r.done) break;
+    }
+    return out;
   }
   /* v3: the route goes on from its last junction while the window allows (no dead ends, no loops) */
   extendRoute() {

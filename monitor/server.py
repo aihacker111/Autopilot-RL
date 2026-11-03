@@ -128,6 +128,17 @@ def checkpoints(runs):
     return sorted(res, key=lambda r: r["mtime"])[-12:]
 
 
+WM_RUN = os.environ.get("LOTUS_WM_RUN")   # which world-model run folder to show; else the most recently active runs/tdmpc2*
+
+
+def wm_dir(runs):
+    if WM_RUN: return WM_RUN if os.path.isabs(WM_RUN) else os.path.join(runs, WM_RUN)
+    ds = [d for d in glob.glob(os.path.join(runs, "tdmpc2*")) if os.path.isdir(d)]
+    if not ds: return os.path.join(runs, "tdmpc2")
+    act = lambda d: max([os.path.getmtime(f) for f in (os.path.join(d, "status.json"), os.path.join(d, "policy.json")) if os.path.exists(f)] or [0])
+    return max(ds, key=act)
+
+
 def status(runs, host):
     p2, co = os.path.join(runs, "teacher_v2"), os.path.join(runs, "coevolve")
     ev = lambda n: load(os.path.join(runs, "eval", n))
@@ -144,7 +155,7 @@ def status(runs, host):
                      "archive": load(os.path.join(co, "archive_live.json")), "result": load(os.path.join(co, "result.json"))},
         "phase4": {"log": load(os.path.join(runs, "phase4", "phase4_log.json"), []), "result": load(os.path.join(runs, "phase4", "result.json"))},
         "npc": {"status": load(os.path.join(runs, "npc", "status.json")), "report": load(os.path.join(runs, "npc", "report.json"))},
-        "wm": {"status": load(os.path.join(runs, "tdmpc2", "status.json")), "result": load(os.path.join(runs, "tdmpc2", "eval_final.json"))},
+        "wm": {"status": load(os.path.join(wm_dir(runs), "status.json")), "result": load(os.path.join(wm_dir(runs), "eval_final.json")), "run": os.path.basename(wm_dir(runs))},
         "checkpoints": checkpoints(runs),
         "log_mtime": os.path.getmtime(os.path.join(runs, "pipeline.log")) if os.path.exists(os.path.join(runs, "pipeline.log")) else None,
     }
@@ -165,13 +176,13 @@ class Sim:
     def __init__(self, runs): self.runs, self.sig, self.html, self.lock = runs, None, None, threading.Lock()
 
     def dirs(self):
-        return ([os.path.join(self.runs, "teacher_v2"), os.path.join(self.runs, "finetune_v2"), os.path.join(self.runs, "tdmpc2")] +
+        return ([os.path.join(self.runs, "teacher_v2"), os.path.join(self.runs, "finetune_v2"), wm_dir(self.runs)] +
                 sorted(glob.glob(os.path.join(self.runs, "coevolve", "ft_g*")), key=lambda d: num(d, r"ft_g(\d+)")))
 
     def signature(self):
         fs = []
         for d in self.dirs():
-            if os.path.basename(d) == "tdmpc2": continue   # swapped in live by the page (/api/policy), no reload needed
+            if os.path.basename(d).startswith("tdmpc2"): continue   # swapped in live by the page (/api/policy), no reload needed
             for f in glob.glob(os.path.join(d, "*.json")):
                 if re.match(r"(student_r\d+|step_\d+|final|latest|policy)\.json$", os.path.basename(f)): fs.append((f, os.path.getmtime(f)))
         return str(hash(tuple(sorted(fs))))
@@ -219,14 +230,14 @@ def make_handler(runs, host, sim):
                         else: self.send(json.dumps({"error": "stretch not found"}), code=404)
                     else: self.send(json.dumps(load(os.path.join(d, "journey.json")) or load(os.path.join(d, "live", "live.json")) or {"segments": []}))
                 elif u.path == "/api/episodes":   # recorded TD-MPC2 training episodes, replayed by the /sim page
-                    d = os.path.join(runs, "tdmpc2", "episodes")
+                    d = os.path.join(wm_dir(runs), "episodes")
                     if "id" in q:
                         f = os.path.join(d, f"ep_{int(q['id'][0]):06d}.json")
                         if os.path.isfile(f): self.send(open(f, "rb").read())
                         else: self.send(json.dumps({"error": "episode not found"}), code=404)
                     else: self.send(json.dumps({"episodes": load(os.path.join(d, "index.json")) or []}))
                 elif u.path == "/api/policy":   # the newest TD-MPC2 snapshot: the /sim page swaps it in while it drives
-                    f = os.path.join(runs, "tdmpc2", "policy.json")
+                    f = os.path.join(wm_dir(runs), "policy.json")
                     if "meta" in q: self.send(json.dumps({"v": os.path.getmtime(f) if os.path.isfile(f) else None}))
                     elif os.path.isfile(f): self.send(open(f, "rb").read())
                     else: self.send(json.dumps({"error": "no TD-MPC2 snapshot yet"}), code=404)
@@ -249,7 +260,9 @@ def lan_ip():
     finally: s.close()
 
 
-def start(runs, port=8765, bind="0.0.0.0", quiet=False):
+def start(runs, port=8765, bind="0.0.0.0", quiet=False, wm=None):
+    global WM_RUN
+    if wm: WM_RUN = wm
     """starts the monitor in a background thread; returns (server, url) or (None, None) if no port was free"""
     host, sim = Host(runs), Sim(runs)
     srv = None
@@ -280,8 +293,9 @@ if __name__ == "__main__":
     ap.add_argument("--runs", default=os.path.join(ROOT, "rl", "runs"))
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--bind", default="0.0.0.0", help="127.0.0.1 to allow only an SSH tunnel")
+    ap.add_argument("--wm", default=None, help="world-model run folder under --runs to show (default: the most recently active tdmpc2*)")
     a = ap.parse_args()
-    srv, _ = start(a.runs, a.port, a.bind)
+    srv, _ = start(a.runs, a.port, a.bind, wm=a.wm)
     if srv:
         try:
             while True: time.sleep(3600)
